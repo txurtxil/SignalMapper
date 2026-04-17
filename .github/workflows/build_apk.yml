@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements.txt
           pip install flet
 
-      - name: Preparar Java (Requisito de Android)
+      - name: Preparar Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -36,7 +36,8 @@ jobs:
           channel: 'stable'
 
       - name: Compilar APK con Flet
-        run: flet build apk
+        # ¡AQUÍ ESTÁ LA MAGIA! Responderá "Y" automáticamente a todo.
+        run: yes | flet build apk
 
       - name: Subir APK final
         uses: actions/upload-artifact@v4
