@@ -4,62 +4,61 @@ from app.localization.strings import get_text
 
 def get_indoor_content(page: ft.Page, lang: str):
     map_bg = ft.Container(width=320, height=450, bgcolor=ft.Colors.BLUE_GREY_900, border_radius=10)
-    heatmap_stack = ft.Stack(controls=[map_bg], width=320, height=450)
+    # Stack que contendrá el plano y los puntos
+    heatmap_stack = ft.Stack(width=320, height=450)
+    heatmap_stack.controls.append(map_bg)
 
-    # RUTA CORRECTA PARA ACTIVO NATIVO
     planos = {
         "Mi Plano Real": "plano_real.jpg",
-        "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa",
-        "Oficina / Office": "https://dummyimage.com/320x450/37474f/81c784.png&text=Plano+Oficina"
+        "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa"
     }
 
     def on_plano_change(e):
         seleccion = planos.get(dropdown_planos.value, "")
-        heatmap_stack.controls = [map_bg]
-
         if seleccion:
-            nueva_imagen = ft.Image(src=seleccion, width=320, height=450, fit="contain")
-            heatmap_stack.controls.append(nueva_imagen)
-            map_bg.bgcolor = ft.Colors.TRANSPARENT
-        else:
-            map_bg.bgcolor = ft.Colors.BLUE_GREY_900
-            
-        page.update()
+            # Reemplazamos la imagen de fondo
+            map_image = ft.Image(src=seleccion, width=320, height=450, fit="contain")
+            heatmap_stack.controls[0] = map_image
+            page.update()
 
     dropdown_planos = ft.Dropdown(
         label=get_text(lang, "indoor_title"),
         options=[ft.dropdown.Option(n) for n in planos.keys()],
-        width=250
+        value="Mi Plano Real",
+        on_change=on_plano_change
     )
-    dropdown_planos.on_change = on_plano_change
 
-    dropdown_planos.value = "Mi Plano Real"
-    on_plano_change(None)
-
-    def handle_tap(e):
+    def handle_tap(e: ft.TapEvent):
         val_rssi = sensors.get_wifi_signal()
         color_str = sensors.get_signal_color(val_rssi)
         ft_color = ft.Colors.GREEN if color_str == "green" else (ft.Colors.ORANGE if color_str == "orange" else ft.Colors.RED)
         
-        # ✅ CORRECCIÓN NATIVA: Leemos coordenadas directamente del objeto evento 'e', no de e.data
-        try:
-            # e.local_x y e.local_y son propiedades nativas del evento de toque en Flet
-            x = e.local_x if e.local_x is not None else 160
-            y = e.local_y if e.local_y is not None else 225
-        except:
-            x, y = 160, 225
+        # En el APK usamos local_x y local_y que son precisos para el dedo
+        pos_x = e.local_x - 10
+        pos_y = e.local_y - 10
         
-        plano_actual = dropdown_planos.value if dropdown_planos.value else "Indoor"
-        point_container = ft.Container(width=20, height=20, bgcolor=ft_color, border_radius=10, left=x-10, top=y-10)
-        heatmap_stack.controls.append(point_container)
+        dot = ft.Container(
+            width=20, height=20, 
+            bgcolor=ft_color, 
+            border_radius=10, 
+            left=pos_x, 
+            top=pos_y
+        )
         
-        database.add_scan("Indoor", plano_actual, val_rssi, ft_color)
+        heatmap_stack.controls.append(dot)
+        database.add_scan("Indoor", dropdown_planos.value, val_rssi, ft_color)
         page.overlay.append(ft.SnackBar(ft.Text(f"RSSI: {val_rssi} dBm"), open=True, bgcolor=ft_color))
         page.update()
+
+    # Disparar carga inicial
+    on_plano_change(None)
 
     return ft.Column([
         ft.Text(get_text(lang, "indoor_title"), size=28, weight="bold", color=ft.Colors.BLUE),
         dropdown_planos,
-        ft.Text(get_text(lang, "indoor_subtitle"), size=14),
-        ft.GestureDetector(on_tap_down=handle_tap, content=heatmap_stack)
+        ft.GestureDetector(
+            on_tap_down=handle_tap,
+            content=heatmap_stack,
+            mouse_cursor=ft.MouseCursor.PRECISION
+        )
     ], horizontal_alignment="center")
