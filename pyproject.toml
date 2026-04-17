@@ -1,0 +1,7 @@
+[project]
+name = "signalmapper"
+version = "0.1.0"
+dependencies = [
+    "flet>=0.25.0",
+    "flet-map"
+]
