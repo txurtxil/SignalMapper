@@ -9,8 +9,21 @@ def main(page: ft.Page):
     page.title = "SignalMapper"
     page.theme_mode = ft.ThemeMode.DARK
     
-    if not hasattr(page, "lang"): page.lang = "es"
-    if not hasattr(page, "selected_idx"): page.selected_idx = 0
+    # === PERMISOS ANDROID (Ubicación + WiFi) ===
+    # Se piden al abrir la app en APK
+    ph = ft.PermissionHandler()
+    page.overlay.append(ph)
+    ph.request_permission([
+        ft.PermissionType.ACCESS_FINE_LOCATION,
+        ft.PermissionType.ACCESS_COARSE_LOCATION,
+        ft.PermissionType.ACCESS_WIFI_STATE
+    ])
+    # ===========================================
+
+    if not hasattr(page, "lang"): 
+        page.lang = "es"
+    if not hasattr(page, "selected_idx"): 
+        page.selected_idx = 0
     
     database.init_db()
     body_container = ft.Container(expand=True)
@@ -27,9 +40,12 @@ def main(page: ft.Page):
             dest.label = get_text(page.lang, keys[i])
         
         idx = page.selected_idx
-        if idx == 0: body_container.content = get_indoor_content(page, page.lang)
-        elif idx == 1: body_container.content = get_outdoor_content(page, page.lang)
-        elif idx == 2: body_container.content = get_history_content(page, page.lang)
+        if idx == 0: 
+            body_container.content = get_indoor_content(page, page.lang)
+        elif idx == 1: 
+            body_container.content = get_outdoor_content(page, page.lang)
+        elif idx == 2: 
+            body_container.content = get_history_content(page, page.lang)
         
         page.update()
 
@@ -58,3 +74,6 @@ def main(page: ft.Page):
     
     page.add(body_container)
     update_ui()
+
+if __name__ == "__main__":
+    ft.app(target=main)
