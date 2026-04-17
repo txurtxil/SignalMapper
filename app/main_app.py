@@ -9,19 +9,6 @@ def main(page: ft.Page):
     page.title = "SignalMapper"
     page.theme_mode = ft.ThemeMode.DARK
     
-    # === PERMISOS ANDROID (con protección para no colgar la app) ===
-    try:
-        ph = ft.PermissionHandler()
-        page.overlay.append(ph)
-        ph.request_permission([
-            ft.PermissionType.ACCESS_FINE_LOCATION,
-            ft.PermissionType.ACCESS_COARSE_LOCATION,
-            ft.PermissionType.ACCESS_WIFI_STATE
-        ])
-    except:
-        pass  # si falla en APK no bloquea toda la app
-    # ===========================================
-
     if not hasattr(page, "lang"): 
         page.lang = "es"
     if not hasattr(page, "selected_idx"): 
@@ -75,7 +62,7 @@ def main(page: ft.Page):
     )
     
     page.add(body_container)
-    update_ui()          # ← este es el que realmente dibuja todo
+    update_ui()
 
 if __name__ == "__main__":
-    ft.app(target=main)  # solo para pruebas en Termux / PC
+    ft.app(target=main)

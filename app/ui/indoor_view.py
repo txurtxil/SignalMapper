@@ -4,19 +4,19 @@ from app.localization.strings import get_text
 
 def get_indoor_content(page: ft.Page, lang: str):
     map_bg = ft.Container(width=320, height=450, bgcolor=ft.Colors.BLUE_GREY_900, border_radius=10)
-    # Stack que contendrá el plano y los puntos
     heatmap_stack = ft.Stack(width=320, height=450)
     heatmap_stack.controls.append(map_bg)
 
+    # ✅ PARA APK: "./" es OBLIGATORIO para imágenes locales
     planos = {
-        "Mi Plano Real": "plano_real.jpg",
-        "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa"
+        "Mi Plano Real": "./plano_real.jpg",
+        "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa",
+        "Oficina / Office": "https://dummyimage.com/320x450/37474f/81c784.png&text=Plano+Oficina"
     }
 
     def on_plano_change(e):
         seleccion = planos.get(dropdown_planos.value, "")
         if seleccion:
-            # Reemplazamos la imagen de fondo
             map_image = ft.Image(src=seleccion, width=320, height=450, fit="contain")
             heatmap_stack.controls[0] = map_image
             page.update()
@@ -33,7 +33,6 @@ def get_indoor_content(page: ft.Page, lang: str):
         color_str = sensors.get_signal_color(val_rssi)
         ft_color = ft.Colors.GREEN if color_str == "green" else (ft.Colors.ORANGE if color_str == "orange" else ft.Colors.RED)
         
-        # En el APK usamos local_x y local_y que son precisos para el dedo
         pos_x = e.local_x - 10
         pos_y = e.local_y - 10
         
@@ -50,15 +49,13 @@ def get_indoor_content(page: ft.Page, lang: str):
         page.overlay.append(ft.SnackBar(ft.Text(f"RSSI: {val_rssi} dBm"), open=True, bgcolor=ft_color))
         page.update()
 
-    # Disparar carga inicial
-    on_plano_change(None)
+    on_plano_change(None)   # carga la imagen real al abrir
 
     return ft.Column([
         ft.Text(get_text(lang, "indoor_title"), size=28, weight="bold", color=ft.Colors.BLUE),
         dropdown_planos,
         ft.GestureDetector(
             on_tap_down=handle_tap,
-            content=heatmap_stack,
-            mouse_cursor=ft.MouseCursor.PRECISION
+            content=heatmap_stack
         )
     ], horizontal_alignment="center")
