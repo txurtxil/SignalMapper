@@ -1,43 +1,37 @@
 import flet as ft
-from app.services.logger import Logger
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    Logger.log("Vista Outdoor lista.")
-    
-    log_box = ft.Text("--- LOGS DE SISTEMA ---\n", size=10, font_family="monospace")
-    
-    def on_gps_error(e):
-        Logger.log(f"GPS ERROR: {e.data}")
-        log_box.value = Logger.get_all()
+    log_box = ft.Text("--- LOGS EN VIVO ---\n", size=12, color=ft.Colors.GREENAccent)
+
+    def add_log(msg):
+        log_box.value += f"{msg}\n"
         page.update()
 
-    def on_gps_pos(e):
-        Logger.log(f"GPS OK: {e.latitude}, {e.longitude}")
-        log_box.value = Logger.get_all()
-        page.update()
+    # 1. Asegurar que el Geolocator existe ANTES de hacer nada
+    existing_gl = [c for c in page.overlay if isinstance(c, ft.Geolocator)]
+    if not existing_gl:
+        gl = ft.Geolocator(
+            on_position=lambda e: add_log(f"📍 GPS OK: Lat {e.latitude:.4f}, Lon {e.longitude:.4f}"),
+            on_error=lambda e: add_log(f"⚠️ Error GPS: {e.data}")
+        )
+        page.overlay.append(gl)
+    else:
+        gl = existing_gl[0]
 
-    # Botón para activar el sistema nativo
-    def activate_native(e):
+    # 2. Petición separada para que Android respire
+    def request_gps(e):
+        add_log("⏳ Solicitando permiso a Android...")
         try:
-            Logger.log("Iniciando Geolocator nativo...")
-            gl = ft.Geolocator(on_position=on_gps_pos, on_error=on_gps_error)
-            page.overlay.append(gl)
-            page.update()
-            
-            Logger.log("Solicitando permisos a Android...")
             gl.request_permission()
+            gl.get_current_position()
         except Exception as ex:
-            Logger.log(f"Fallo crítico: {str(ex)}")
-        
-        log_box.value = Logger.get_all()
-        page.update()
+            add_log(f"❌ Fallo crítico evitado: {str(ex)}")
 
     return ft.Column([
-        ft.Text("Modo Outdoor", size=24, color=ft.Colors.GREEN),
-        ft.ElevatedButton("1. ACTIVAR PERMISOS", icon=ft.Icons.LOCK_OPEN, on_click=activate_native),
+        ft.Text("Modo Outdoor", size=24, weight="bold", color=ft.Colors.GREEN),
+        ft.ElevatedButton("PEDIR PERMISOS Y ESCANEAR", icon=ft.Icons.GPS_FIXED, on_click=request_gps),
         ft.Container(
-            content=log_box,
-            width=320, height=300, bgcolor=ft.Colors.BLACK,
-            padding=10, border_radius=5
+            content=ft.Column([log_box], scroll="auto"),
+            width=320, height=300, bgcolor=ft.Colors.BLACK, border_radius=10, padding=10
         )
     ], horizontal_alignment="center")
