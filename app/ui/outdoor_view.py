@@ -4,7 +4,16 @@ from app.services import database, sensors
 def get_outdoor_content(page: ft.Page, lang: str):
     try:
         gps_data = ft.Text("GPS Simulado (Modo Seguro)", text_align=ft.TextAlign.CENTER)
-        map_box = ft.Container(content=gps_data, width=320, height=450, bgcolor=ft.Colors.BLUE_GREY_900, border_radius=10, alignment=ft.alignment.center)
+        
+        # ✅ EL ARREGLO: Usamos Alignment(0, 0) en lugar de center
+        map_box = ft.Container(
+            content=gps_data, 
+            width=320, 
+            height=450, 
+            bgcolor=ft.Colors.BLUE_GREY_900, 
+            border_radius=10, 
+            alignment=ft.alignment.Alignment(0, 0)
+        )
 
         def handle_scan(e):
             try:
