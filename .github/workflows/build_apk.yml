@@ -1,30 +1,49 @@
-name: Compilar APK
+name: Compilar APK Flet
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install flet
-      - uses: actions/setup-java@v4
+
+      - name: Instalar Flet
+        run: pip install flet
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
-      - uses: subosito/flutter-action@v2
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Preparar Flutter
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
-      - name: Build APK
-        # USAMOS SOLO 'location' PARA QUE NO DE ERROR
-        run: yes | flet build apk --permissions location
-      - uses: actions/upload-artifact@v4
+
+      - name: Aceptar Licencias de Android Automáticamente
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Compilar APK
+        # Quitamos el yes | de aquí para ver el error real si algo falla
+        run: flet build apk --permissions location
+
+      - name: Subir APK final
+        uses: actions/upload-artifact@v4
         with:
           name: SignalMapper-APK
           path: build/apk/**/*.apk
