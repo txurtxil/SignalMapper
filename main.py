@@ -1,6 +1,7 @@
 import flet as ft
 from app.main_app import main
+from app.services.logger import Logger
 
 if __name__ == "__main__":
-    # En APK, solo la palabra "assets" es necesaria
+    Logger.log("Iniciando App SignalMapper...")
     ft.app(target=main, assets_dir="assets")

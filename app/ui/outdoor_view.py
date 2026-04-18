@@ -1,52 +1,41 @@
 import flet as ft
 from app.services import database, sensors
+from app.services.logger import Logger
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    gps_text = ft.Text("GPS: Esperando señal...", size=16, weight="bold", text_align=ft.TextAlign.CENTER)
-    coords_text = ft.Text("Lat: 0.0, Lon: 0.0", size=14, italic=True)
-    
-    # Caja de visualización
-    map_box = ft.Container(
-        content=ft.Column([gps_text, coords_text], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        width=320, height=450, 
-        bgcolor=ft.Colors.BLUE_GREY_900, 
-        border_radius=10, 
-        alignment=ft.alignment.Alignment(0, 0)
-    )
+    Logger.log("Cargando vista Outdoor...")
+    status_text = ft.Text("Estado GPS: Esperando comando", size=14)
 
-    # El componente nativo de GPS
     gl = ft.Geolocator(
-        on_position=lambda e: update_ui(e),
-        on_error=lambda e: page.overlay.append(ft.SnackBar(ft.Text(f"Error GPS: {e.data}"), open=True))
+        on_position=lambda e: Logger.log(f"GPS Actualizado: {e.latitude}, {e.longitude}"),
+        on_error=lambda e: Logger.log(f"ERROR GPS NATIVO: {e.data}")
     )
     page.overlay.append(gl)
 
-    def update_ui(e):
-        gps_text.value = "✅ Señal GPS Activa"
-        coords_text.value = f"Lat: {e.latitude:.5f}\nLon: {e.longitude:.5f}"
-        page.update()
-
-    def handle_scan(e):
+    def start_geo(e):
+        Logger.log("Solicitando permisos de ubicación a Android...")
         try:
-            # Pedimos permiso y activamos el GPS
             gl.request_permission()
             gl.get_current_position()
-            
-            val_rssi = sensors.get_wifi_signal()
-            color_str = sensors.get_signal_color(val_rssi)
-            ft_color = ft.Colors.GREEN if color_str == "green" else (ft.Colors.ORANGE if color_str == "orange" else ft.Colors.RED)
-            
-            # Guardamos con coordenadas reales si están disponibles
-            loc_label = f"GPS: {coords_text.value.replace('\n', ' ')}"
-            database.add_scan("Outdoor", loc_label, val_rssi, ft_color)
-            
-            page.overlay.append(ft.SnackBar(ft.Text(f"Escaneo Guardado: {val_rssi} dBm"), open=True, bgcolor=ft_color))
+            status_text.value = "✅ Solicitud enviada"
             page.update()
         except Exception as ex:
-            page.overlay.append(ft.SnackBar(ft.Text(f"Error: {str(ex)}"), open=True, bgcolor=ft.Colors.RED))
+            Logger.log(f"Fallo al solicitar permisos: {str(ex)}")
+
+    # BOTÓN DE LOGS (Para ver qué está pasando)
+    def show_logs(e):
+        Logger.log("Abriendo visor de logs...")
+        page.dialog = ft.AlertDialog(
+            title=ft.Text("Debug Logs"),
+            content=ft.Text(Logger.get_logs(), size=10, font_family="monospace"),
+            scrollable=True
+        )
+        page.dialog.open = True
+        page.update()
 
     return ft.Column([
-        ft.Text("Modo Outdoor", size=28, weight="bold", color=ft.Colors.GREEN),
-        ft.ElevatedButton("Activar GPS y Escanear", icon=ft.Icons.GPS_FIXED, on_click=handle_scan),
-        map_box
+        ft.Text("Modo Outdoor", size=24, weight="bold", color=ft.Colors.GREEN),
+        ft.ElevatedButton("Pedir Permisos / Escanear", icon=ft.Icons.GPS_FIXED, on_click=start_geo),
+        ft.ElevatedButton("Ver LOGS del Sistema", icon=ft.Icons.TERMINAL, on_click=show_logs, bgcolor=ft.Colors.BLUE_GREY_900),
+        status_text,
     ], horizontal_alignment="center")
