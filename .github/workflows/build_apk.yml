@@ -39,8 +39,8 @@ jobs:
         run: yes | flutter doctor --android-licenses || true
 
       - name: Compilar APK
-        # Quitamos el yes | de aquí para ver el error real si algo falla
-        run: flet build apk --permissions location
+        # 🔥 AQUÍ ESTÁ EL FIX: Le devolvemos el "yes |" para que responda "Sí" a todo
+        run: yes | flet build apk --permissions location
 
       - name: Subir APK final
         uses: actions/upload-artifact@v4
