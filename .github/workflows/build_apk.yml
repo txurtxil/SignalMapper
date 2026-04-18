@@ -3,7 +3,6 @@ name: Compilar APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
   build:
@@ -23,7 +22,7 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
       - name: Build APK
-        # ✅ Solo 'location' es una opción válida aquí
+        # USAMOS SOLO 'location' PARA QUE NO DE ERROR
         run: yes | flet build apk --permissions location
       - uses: actions/upload-artifact@v4
         with:
