@@ -7,9 +7,9 @@ def get_indoor_content(page: ft.Page, lang: str):
     heatmap_stack = ft.Stack(width=320, height=450)
     heatmap_stack.controls.append(map_bg)
 
-    # ✅ RUTA CORRECTA PARA APK (solo el nombre)
+    # ✅ RUTA QUE FUNCIONA EN APK (assets/ + nombre)
     planos = {
-        "Mi Plano Real": "plano_real.jpg",
+        "Mi Plano Real": "assets/plano_real.jpg",
         "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa",
         "Oficina / Office": "https://dummyimage.com/320x450/37474f/81c784.png&text=Plano+Oficina"
     }
@@ -33,9 +33,8 @@ def get_indoor_content(page: ft.Page, lang: str):
         color_str = sensors.get_signal_color(val_rssi)
         ft_color = ft.Colors.GREEN if color_str == "green" else (ft.Colors.ORANGE if color_str == "orange" else ft.Colors.RED)
         
-        # Coordenadas precisas en APK
-        pos_x = e.local_x - 10 if hasattr(e, 'local_x') else 150
-        pos_y = e.local_y - 10 if hasattr(e, 'local_y') else 225
+        pos_x = getattr(e, 'local_x', 150) - 10
+        pos_y = getattr(e, 'local_y', 225) - 10
         
         dot = ft.Container(
             width=20, height=20, 
@@ -48,12 +47,16 @@ def get_indoor_content(page: ft.Page, lang: str):
         heatmap_stack.controls.append(dot)
         database.add_scan("Indoor", dropdown_planos.value, val_rssi, ft_color)
         
-        # Feedback visual inmediato
-        page.overlay.append(ft.SnackBar(ft.Text(f"✅ Punto añadido - RSSI: {val_rssi} dBm"), open=True, bgcolor=ft_color))
+        page.overlay.append(
+            ft.SnackBar(
+                ft.Text(f"✅ Punto añadido - RSSI: {val_rssi} dBm"), 
+                open=True, 
+                bgcolor=ft_color
+            )
+        )
         page.update()
 
-    # Carga automática de tu plano real
-    on_plano_change(None)
+    on_plano_change(None)   # carga inmediata
 
     return ft.Column([
         ft.Text(get_text(lang, "indoor_title"), size=28, weight="bold", color=ft.Colors.BLUE),
