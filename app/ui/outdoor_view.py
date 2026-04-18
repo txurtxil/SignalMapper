@@ -38,6 +38,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
             status_text.color = ft.Colors.RED
             page.update()
 
+    # Geolocator (solo una vez)
     if not hasattr(page, "outdoor_geolocator"):
         try:
             geo = ft.Geolocator(
@@ -51,6 +52,9 @@ def get_outdoor_content(page: ft.Page, lang: str):
             status_text.value = "❌ Error: flet-geolocator no instalado o bug APK"
             status_text.color = ft.Colors.RED
             page.outdoor_geolocator = None
+            page.update()          # ← CRÍTICO: ahora sí ves el error en pantalla
+    else:
+        print("ℹ️ Geolocator reutilizado")
 
     def handle_click(e):
         btn.text = "CONECTANDO..."
