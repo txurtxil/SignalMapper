@@ -1,7 +1,7 @@
 import random
 
 def get_wifi_signal():
-    # ¡CERO SUBPROCESS! Android no nos matará la app.
+    # ¡CERO SUBPROCESS! Android no nos matará la app. (Version forzada)
     return random.randint(-90, -40)
 
 def get_signal_color(rssi):

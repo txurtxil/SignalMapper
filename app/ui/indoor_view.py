@@ -9,8 +9,8 @@ def get_indoor_content(page: ft.Page, lang: str):
         color = ft.Colors.GREEN if rssi > -60 else (ft.Colors.ORANGE if rssi > -80 else ft.Colors.RED)
         
         # Leemos las coordenadas del clic de forma segura
-        x = e.local_x if e.local_x else 160
-        y = e.local_y if e.local_y else 225
+        x = getattr(e, 'local_x', 160)
+        y = getattr(e, 'local_y', 225)
         
         dot = ft.Container(width=16, height=16, bgcolor=color, border_radius=8, left=x-8, top=y-8)
         points_layer.controls.append(dot)
@@ -20,7 +20,7 @@ def get_indoor_content(page: ft.Page, lang: str):
         page.update()
 
     return ft.Column([
-        ft.Text("Indoor (Estable)", size=24, weight="bold", color=ft.Colors.BLUE),
+        ft.Text("Indoor (Forzado)", size=24, weight="bold", color=ft.Colors.BLUE),
         ft.Stack([
             ft.Image(src="plano_real.jpg", width=320, height=450, fit="contain"),
             points_layer,
