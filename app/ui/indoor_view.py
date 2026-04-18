@@ -3,13 +3,14 @@ from app.services import database, sensors
 from app.localization.strings import get_text
 
 def get_indoor_content(page: ft.Page, lang: str):
+    # Fondo gris mientras carga la imagen
     map_bg = ft.Container(width=320, height=450, bgcolor=ft.Colors.BLUE_GREY_900, border_radius=10)
-    heatmap_stack = ft.Stack(width=320, height=450)
+    heatmap_stack = ft.Stack(width=320, height=450, expand=True)
     heatmap_stack.controls.append(map_bg)
 
-    # ✅ RUTA QUE FUNCIONA EN APK (assets/ + nombre)
+    # ✅ RUTA CORRECTA PARA APK (solo el nombre)
     planos = {
-        "Mi Plano Real": "assets/plano_real.jpg",
+        "Mi Plano Real": "plano_real.jpg",
         "Casa / Home": "https://dummyimage.com/320x450/263238/4fc3f7.png&text=Plano+Casa",
         "Oficina / Office": "https://dummyimage.com/320x450/37474f/81c784.png&text=Plano+Oficina"
     }
@@ -17,6 +18,7 @@ def get_indoor_content(page: ft.Page, lang: str):
     def on_plano_change(e):
         seleccion = planos.get(dropdown_planos.value, "")
         if seleccion:
+            # Reemplazamos el fondo con la imagen real
             map_image = ft.Image(src=seleccion, width=320, height=450, fit="contain")
             heatmap_stack.controls[0] = map_image
             page.update()
@@ -37,10 +39,10 @@ def get_indoor_content(page: ft.Page, lang: str):
         pos_y = getattr(e, 'local_y', 225) - 10
         
         dot = ft.Container(
-            width=20, height=20, 
-            bgcolor=ft_color, 
-            border_radius=10, 
-            left=pos_x, 
+            width=20, height=20,
+            bgcolor=ft_color,
+            border_radius=10,
+            left=pos_x,
             top=pos_y
         )
         
@@ -49,14 +51,15 @@ def get_indoor_content(page: ft.Page, lang: str):
         
         page.overlay.append(
             ft.SnackBar(
-                ft.Text(f"✅ Punto añadido - RSSI: {val_rssi} dBm"), 
-                open=True, 
+                ft.Text(f"✅ Punto añadido - RSSI: {val_rssi} dBm"),
+                open=True,
                 bgcolor=ft_color
             )
         )
         page.update()
 
-    on_plano_change(None)   # carga inmediata
+    # Carga inmediata de tu plano real
+    on_plano_change(None)
 
     return ft.Column([
         ft.Text(get_text(lang, "indoor_title"), size=28, weight="bold", color=ft.Colors.BLUE),
@@ -65,4 +68,4 @@ def get_indoor_content(page: ft.Page, lang: str):
             on_tap_down=handle_tap,
             content=heatmap_stack
         )
-    ], horizontal_alignment="center")
+    ], horizontal_alignment="center", expand=True)
