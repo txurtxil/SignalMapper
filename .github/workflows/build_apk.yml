@@ -1,4 +1,4 @@
-name: Compilar APK Flet
+name: Compilar APK Final
 
 on:
   push:
@@ -10,41 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Preparar Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Instalar Dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Preparar Java
-        uses: actions/setup-java@v4
+      - run: pip install flet flet-geolocator
+      - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
-
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Preparar Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
-
-      - name: Aceptar Licencias Android
-        run: yes | flutter doctor --android-licenses || true
-
-      - name: Compilar APK con Fix de Caché
-        # Aplicamos el fix exacto que encontraste
+      - name: Limpiar y Compilar
+        # Usamos el flag --clear-cache para evitar el bug de 'Unknown control: Geolocator'
         run: yes | flet build apk --permissions location --clear-cache
-
-      - name: Subir APK final
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: SignalMapper-APK
           path: build/apk/**/*.apk
