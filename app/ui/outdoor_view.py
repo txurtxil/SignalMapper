@@ -3,39 +3,38 @@ from app.services import database, sensors
 from app.services.logger import Logger
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    Logger.log("Cargando vista Outdoor...")
-    status_text = ft.Text("Estado GPS: Esperando comando", size=14)
-
+    Logger.log("Cargando Outdoor...")
+    
+    log_display = ft.Text("Esperando acción...", size=12, color=ft.Colors.GREY_400)
+    
+    # Localizador nativo
     gl = ft.Geolocator(
-        on_position=lambda e: Logger.log(f"GPS Actualizado: {e.latitude}, {e.longitude}"),
-        on_error=lambda e: Logger.log(f"ERROR GPS NATIVO: {e.data}")
+        on_position=lambda e: Logger.log(f"GPS: {e.latitude}, {e.longitude}"),
+        on_error=lambda e: Logger.log(f"Error GPS: {e.data}")
     )
-    page.overlay.append(gl)
+    if gl not in page.overlay: page.overlay.append(gl)
 
-    def start_geo(e):
-        Logger.log("Solicitando permisos de ubicación a Android...")
+    def start_scan(e):
         try:
+            Logger.log("Pidiendo permiso GPS...")
             gl.request_permission()
             gl.get_current_position()
-            status_text.value = "✅ Solicitud enviada"
+            log_display.value = Logger.get_all()
             page.update()
         except Exception as ex:
-            Logger.log(f"Fallo al solicitar permisos: {str(ex)}")
-
-    # BOTÓN DE LOGS (Para ver qué está pasando)
-    def show_logs(e):
-        Logger.log("Abriendo visor de logs...")
-        page.dialog = ft.AlertDialog(
-            title=ft.Text("Debug Logs"),
-            content=ft.Text(Logger.get_logs(), size=10, font_family="monospace"),
-            scrollable=True
-        )
-        page.dialog.open = True
-        page.update()
+            Logger.log(f"Error Scan: {str(ex)}")
+            log_display.value = Logger.get_all()
+            page.update()
 
     return ft.Column([
         ft.Text("Modo Outdoor", size=24, weight="bold", color=ft.Colors.GREEN),
-        ft.ElevatedButton("Pedir Permisos / Escanear", icon=ft.Icons.GPS_FIXED, on_click=start_geo),
-        ft.ElevatedButton("Ver LOGS del Sistema", icon=ft.Icons.TERMINAL, on_click=show_logs, bgcolor=ft.Colors.BLUE_GREY_900),
-        status_text,
+        ft.ElevatedButton("Pedir Permisos / Escanear", icon=ft.Icons.GPS_FIXED, on_click=start_scan),
+        ft.Container(
+            content=ft.Column([
+                ft.Text("DEBUG LOGS", weight="bold", size=10),
+                log_display
+            ], scroll="auto"),
+            width=320, height=350, bgcolor=ft.Colors.BLACK, border_radius=10, padding=10,
+            alignment=ft.alignment.Alignment(0, 0) # ✅ Fix de alignment
+        )
     ], horizontal_alignment="center")
