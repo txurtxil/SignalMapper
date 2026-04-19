@@ -1,27 +1,43 @@
 import flet as ft
-from flet_geolocator import Geolocator # 🔥 AQUÍ ESTÁ LA MAGIA QUE FALTABA
 import urllib.request
 import json
 import threading
+
+# 🔥 ESCUDO ANTI-CRASH PARA EL MÓDULO NATIVO 🔥
+try:
+    from flet_geolocator import Geolocator
+    HAS_GEO = True
+    GEO_ERROR = "OK"
+except ImportError as e1:
+    try:
+        # Intento alternativo por si es una versión antigua de Flet
+        from flet.core.geolocator import Geolocator
+        HAS_GEO = True
+        GEO_ERROR = "OK"
+    except ImportError as e2:
+        HAS_GEO = False
+        GEO_ERROR = str(e1)
 
 def get_outdoor_content(page: ft.Page, lang: str):
     status_text = ft.Text("Selecciona método de escaneo", size=14, color=ft.Colors.GREY_400)
     map_image = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas", width=320, height=300, fit="cover", border_radius=10)
 
-    # 1. CREACIÓN DEL GPS NATIVO (Usando la librería externa correctamente)
+    # CREACIÓN DEL GPS SOLO SI EXISTE
     if not hasattr(page, "geo_fix"):
-        try:
-            # Ya no es ft.Geolocator, es simplemente Geolocator()
-            geo = Geolocator(
-                on_position=lambda e: update_map(e.latitude, e.longitude, "Satélite GPS"),
-                on_error=lambda e: status_text.update()
-            )
-            page.overlay.append(geo)
-            page.geo_fix = geo
-            page.geo_error_log = "OK"
-        except Exception as e:
+        if HAS_GEO:
+            try:
+                geo = Geolocator(
+                    on_position=lambda e: update_map(e.latitude, e.longitude, "Satélite GPS"),
+                    on_error=lambda e: status_text.update()
+                )
+                page.overlay.append(geo)
+                page.geo_fix = geo
+            except Exception as e:
+                page.geo_fix = None
+                global GEO_ERROR
+                GEO_ERROR = str(e)
+        else:
             page.geo_fix = None
-            page.geo_error_log = str(e)
 
     def update_map(lat, lon, source):
         status_text.value = f"✅ Ubicación ({source}):\nLat: {lat:.4f} | Lon: {lon:.4f}"
@@ -46,12 +62,11 @@ def get_outdoor_content(page: ft.Page, lang: str):
         threading.Thread(target=task, daemon=True).start()
 
     def btn_usar_gps(e):
-        if getattr(page, "geo_fix", None) is not None:
+        if page.geo_fix is not None:
             status_text.value = "⏳ Buscando satélites (¡Sal al balcón/calle!)..."
             status_text.color = ft.Colors.AMBER
             page.update()
             try:
-                # Si a Android le falta el permiso, ahora SÍ lo pedirá
                 page.geo_fix.request_permission()
                 page.geo_fix.get_current_position()
             except Exception as ex:
@@ -59,8 +74,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
                 status_text.color = ft.Colors.RED
                 page.update()
         else:
-            err_msg = getattr(page, "geo_error_log", "Desconocido")
-            status_text.value = f"❌ Fallo interno módulo: {err_msg}"
+            status_text.value = f"❌ Paquete GPS no compilado en APK.\nDetalle: {GEO_ERROR}"
             status_text.color = ft.Colors.RED
             page.update()
 
