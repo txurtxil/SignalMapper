@@ -4,19 +4,14 @@ import json
 import threading
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    status_text = ft.Text("Selecciona un método de ubicación", size=14, color=ft.Colors.GREY_400)
-    
-    map_image = ft.Image(
-        src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas",
-        width=320, height=300, fit="cover", border_radius=10
-    )
+    status_text = ft.Text("Selecciona método", size=14, color=ft.Colors.GREY_400)
+    map_image = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas", width=320, height=300, fit="cover", border_radius=10)
 
-    # Solo intentamos crear el geolocator, sin forzar
     if not hasattr(page, "geo_fix"):
         try:
             geo = ft.Geolocator(
                 on_position=lambda e: update_map(e.latitude, e.longitude, "Satélite"),
-                on_error=lambda e: status_text.update() # Ignoramos el error silenciosamente
+                on_error=lambda e: status_text.update()
             )
             page.overlay.append(geo)
             page.geo_fix = geo
@@ -30,10 +25,9 @@ def get_outdoor_content(page: ft.Page, lang: str):
         page.update()
 
     def btn_usar_red(e):
-        status_text.value = "⏳ Triangulando antenas y WiFi..."
+        status_text.value = "⏳ Triangulando..."
         status_text.color = ft.Colors.AMBER
         page.update()
-        
         def task():
             try:
                 with urllib.request.urlopen("https://ipinfo.io/json", timeout=5) as resp:
@@ -47,14 +41,16 @@ def get_outdoor_content(page: ft.Page, lang: str):
         threading.Thread(target=task, daemon=True).start()
 
     def btn_usar_gps(e):
-        status_text.value = "⏳ Buscando satélites (Sal al exterior)..."
+        status_text.value = "⏳ Forzando permisos en Android..."
         status_text.color = ft.Colors.AMBER
         page.update()
         if page.geo_fix:
             try:
+                # 🔥 FORZAMOS NATIVAMENTE LA VENTANA DE PERMISOS
+                page.geo_fix.request_permission()
                 page.geo_fix.get_current_position()
-            except:
-                status_text.value = "❌ El GPS físico no responde."
+            except Exception as ex:
+                status_text.value = f"❌ Error GPS: {str(ex)}"
                 status_text.color = ft.Colors.RED
                 page.update()
 
