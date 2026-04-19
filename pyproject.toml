@@ -1,7 +1,8 @@
 [project]
 name = "signalmapper"
-version = "0.1.0"
+version = "1.0.0"
+description = "Mapeador de Senal"
 dependencies = [
-    "flet>=0.25.0",
-    "flet-map"
+    "flet",
+    "flet-geolocator"
 ]
