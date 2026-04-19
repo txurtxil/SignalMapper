@@ -1,4 +1,5 @@
 import flet as ft
+from flet_geolocator import Geolocator # 🔥 AQUÍ ESTÁ LA MAGIA QUE FALTABA
 import urllib.request
 import json
 import threading
@@ -7,18 +8,18 @@ def get_outdoor_content(page: ft.Page, lang: str):
     status_text = ft.Text("Selecciona método de escaneo", size=14, color=ft.Colors.GREY_400)
     map_image = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas", width=320, height=300, fit="cover", border_radius=10)
 
-    # 1. CREACIÓN DEL GPS NATIVO (Sin 'page.update()' para evitar el bloqueo)
+    # 1. CREACIÓN DEL GPS NATIVO (Usando la librería externa correctamente)
     if not hasattr(page, "geo_fix"):
         try:
-            geo = ft.Geolocator(
+            # Ya no es ft.Geolocator, es simplemente Geolocator()
+            geo = Geolocator(
                 on_position=lambda e: update_map(e.latitude, e.longitude, "Satélite GPS"),
                 on_error=lambda e: status_text.update()
             )
             page.overlay.append(geo)
             page.geo_fix = geo
-            page.geo_error_log = "OK" # Si llega aquí, todo ha ido bien
+            page.geo_error_log = "OK"
         except Exception as e:
-            # Si algo falla, guardamos el error exacto
             page.geo_fix = None
             page.geo_error_log = str(e)
 
@@ -45,13 +46,12 @@ def get_outdoor_content(page: ft.Page, lang: str):
         threading.Thread(target=task, daemon=True).start()
 
     def btn_usar_gps(e):
-        # Primero comprobamos si el GPS se cargó correctamente al inicio
         if getattr(page, "geo_fix", None) is not None:
             status_text.value = "⏳ Buscando satélites (¡Sal al balcón/calle!)..."
             status_text.color = ft.Colors.AMBER
             page.update()
             try:
-                # Pedimos permisos y activamos antena
+                # Si a Android le falta el permiso, ahora SÍ lo pedirá
                 page.geo_fix.request_permission()
                 page.geo_fix.get_current_position()
             except Exception as ex:
@@ -59,7 +59,6 @@ def get_outdoor_content(page: ft.Page, lang: str):
                 status_text.color = ft.Colors.RED
                 page.update()
         else:
-            # Si el GPS falló al inicio, mostramos el motivo exacto
             err_msg = getattr(page, "geo_error_log", "Desconocido")
             status_text.value = f"❌ Fallo interno módulo: {err_msg}"
             status_text.color = ft.Colors.RED
