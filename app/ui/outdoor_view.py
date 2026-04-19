@@ -3,33 +3,29 @@ import urllib.request
 import json
 import threading
 
-# 🔥 ESCUDO ANTI-CRASH PARA EL MÓDULO NATIVO 🔥
+# 🔥 ESCUDO ANTI-CRASH 🔥
 try:
     from flet_geolocator import Geolocator
     HAS_GEO = True
     GEO_ERROR = "OK"
 except ImportError as e1:
-    try:
-        # Intento alternativo por si es una versión antigua de Flet
-        from flet.core.geolocator import Geolocator
-        HAS_GEO = True
-        GEO_ERROR = "OK"
-    except ImportError as e2:
-        HAS_GEO = False
-        GEO_ERROR = str(e1)
+    HAS_GEO = False
+    GEO_ERROR = str(e1)
 
 def get_outdoor_content(page: ft.Page, lang: str):
     status_text = ft.Text("Selecciona método de escaneo", size=14, color=ft.Colors.GREY_400)
     map_image = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas", width=320, height=300, fit="cover", border_radius=10)
 
-    # CREACIÓN DEL GPS SOLO SI EXISTE
+    # 1. CREACIÓN DEL GPS (Sintaxis actualizada)
     if not hasattr(page, "geo_fix"):
         if HAS_GEO:
             try:
-                geo = Geolocator(
-                    on_position=lambda e: update_map(e.latitude, e.longitude, "Satélite GPS"),
-                    on_error=lambda e: status_text.update()
-                )
+                # Lo creamos vacío para evitar errores de argumentos
+                geo = Geolocator()
+                # Le asignamos los eventos con sus nuevos nombres oficiales
+                geo.on_position_change = lambda e: update_map(e.latitude, e.longitude, "Satélite GPS")
+                geo.on_error = lambda e: status_text.update()
+                
                 page.overlay.append(geo)
                 page.geo_fix = geo
             except Exception as e:
@@ -74,7 +70,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
                 status_text.color = ft.Colors.RED
                 page.update()
         else:
-            status_text.value = f"❌ Paquete GPS no compilado en APK.\nDetalle: {GEO_ERROR}"
+            status_text.value = f"❌ Error en el módulo: {GEO_ERROR}"
             status_text.color = ft.Colors.RED
             page.update()
 
