@@ -2,53 +2,46 @@ import flet as ft
 import urllib.request
 import json
 import threading
+import ssl
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    status_text = ft.Text("Modo de escaneo por Red/Antena listo", size=14, color=ft.colors.GREY_400)
-    
-    # Imagen placeholder inicial
-    map_image = ft.Image(
-        src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando+Coordenadas", 
-        width=320, height=300, fit="cover", border_radius=10
-    )
+    status = ft.Text("Listo", color=ft.colors.GREY_400)
+    map_img = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Pulsa+Boton", width=320, height=300, border_radius=10)
 
-    def update_map(lat, lon, source):
-        status_text.value = f"✅ Ubicación ({source}):\nLat: {lat:.4f} | Lon: {lon:.4f}"
-        status_text.color = ft.colors.GREEN
-        
-        # 🔥 EL MAPA REAL DE CALLES HA VUELTO 🔥
-        map_image.src = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=17&size=320x300&maptype=mapnik&markers={lat},{lon},red-pushpin"
-        
-        try:
-            rssi = sensors.get_wifi_signal()
-            database.add_scan(f"Outdoor ({source})", f"{lat:.4f}, {lon:.4f}", rssi)
-            status_text.value += "\n💾 Añadido al Historial"
-        except Exception as ex:
-            status_text.value += f"\n❌ Fallo BD: {ex}"
-
+    def ubicar(e):
+        status.value = "⏳ Conectando..."
         page.update()
-
-    def btn_usar_red(e):
-        status_text.value = "⏳ Triangulando con Red Móvil/WiFi..."
-        status_text.color = ft.colors.AMBER
-        page.update()
+        
         def task():
             try:
-                with urllib.request.urlopen("https://ipinfo.io/json", timeout=5) as resp:
-                    data = json.loads(resp.read().decode())
-                    lat, lon = map(float, data['loc'].split(','))
-                    update_map(lat, lon, "Red IP")
-            except:
-                status_text.value = "❌ Falló la conexión a Internet"
-                status_text.color = ft.colors.RED
+                # Bypass de SSL para que Android no bloquee la conexión
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                
+                with urllib.request.urlopen("https://ipinfo.io/json", timeout=7, context=ctx) as r:
+                    data = json.loads(r.read().decode())
+                    lat, lon = data['loc'].split(',')
+                    
+                rssi = sensors.get_wifi_signal()
+                database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
+                
+                # Actualizar UI
+                status.value = f"✅ OK: {lat[:7]}, {lon[:7]}"
+                status.color = ft.colors.GREEN
+                map_img.src = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=15&size=320x300&markers={lat},{lon},red"
                 page.update()
+            except Exception as ex:
+                status.value = f"❌ Error: {str(ex)[:30]}"
+                status.color = ft.colors.RED
+                page.update()
+
         threading.Thread(target=task, daemon=True).start()
 
     return ft.Column([
-        ft.Text("Mapeo Outdoor", size=24, weight="bold", color=ft.colors.GREEN),
-        ft.Text("⚠️ Solo usa el botón. El mapa no es táctil aquí.", color=ft.colors.ORANGE, size=11, text_align=ft.TextAlign.CENTER),
-        ft.ElevatedButton("UBICAR POR ANTENA / RED", icon=ft.icons.WIFI_TETHERING, on_click=btn_usar_red, bgcolor=ft.colors.BLUE_900, color=ft.colors.WHITE),
-        status_text,
-        ft.Container(content=map_image, border_radius=10, border=ft.border.all(2, ft.colors.WHITE))
-    ], horizontal_alignment="center", spacing=15)
+        ft.Text("Outdoor", size=24, weight="bold", color=ft.colors.GREEN),
+        ft.ElevatedButton("ESCANEAR RED/IP", icon=ft.icons.WIFI, on_click=ubicar),
+        status,
+        ft.Container(content=map_img, border=ft.border.all(1, "white"), border_radius=10)
+    ], horizontal_alignment="center")

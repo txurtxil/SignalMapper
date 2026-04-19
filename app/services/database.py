@@ -1,56 +1,47 @@
 import sqlite3
+import os
 
-# Usamos un archivo de base de datos nuevo por si el anterior se quedó corrupto
-DB_PATH = "signalmapper_v2.db"
+# Forzamos una ruta donde Android siempre deja escribir
+DB_PATH = os.path.join(os.getcwd(), "signal_v3.db")
 
 def init_db():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS scans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tipo TEXT,
-                coordenadas TEXT,
-                rssi INTEGER,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print("Error BD init:", e)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS scans 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, zona TEXT, coords TEXT, rssi INTEGER, fecha TEXT)''')
+    conn.commit()
+    conn.close()
 
-def add_scan(tipo, coordenadas, rssi, color=""):
+def add_scan(zona, coords, rssi):
     try:
         init_db()
+        import datetime
+        ahora = datetime.datetime.now().strftime("%H:%M:%S")
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("INSERT INTO scans (tipo, coordenadas, rssi) VALUES (?, ?, ?)", 
-                  (str(tipo), str(coordenadas), int(rssi)))
+        c.execute("INSERT INTO scans (zona, coords, rssi, fecha) VALUES (?, ?, ?, ?)", 
+                  (str(zona), str(coords), int(rssi), ahora))
         conn.commit()
         conn.close()
     except Exception as e:
-        print("Error BD add:", e)
+        print(f"Error DB: {e}")
 
 def get_all_scans():
     try:
         init_db()
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT id, tipo, coordenadas, rssi, datetime(fecha, 'localtime') FROM scans ORDER BY id DESC")
-        rows = c.fetchall()
+        c.execute("SELECT zona, coords, rssi, fecha FROM scans ORDER BY id DESC LIMIT 20")
+        data = c.fetchall()
         conn.close()
-        return rows
-    except Exception as e:
-        # Si la consulta falla, devuelve el error como si fuera un escaneo para que lo leamos
-        return [(0, "ERROR", str(e), 0, "Fallo Base Datos")]
+        return data
+    except:
+        return []
 
-def clear_scans():
+def clear_db():
     try:
         conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("DELETE FROM scans")
+        conn.cursor().execute("DELETE FROM scans")
         conn.commit()
         conn.close()
     except:
