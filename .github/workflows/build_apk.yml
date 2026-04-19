@@ -21,9 +21,10 @@ jobs:
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
-      - name: Compilar APK
+      - name: Compilar APK con Dependencias Nativas
         run: |
-          pip install flet
+          # Instalamos leyendo el archivo para que Flet lo detecte
+          pip install -r requirements.txt
           yes | flet build apk --permissions location --clear-cache
       - uses: actions/upload-artifact@v4
         with:
