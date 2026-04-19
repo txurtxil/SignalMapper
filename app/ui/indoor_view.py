@@ -3,23 +3,21 @@ from app.services import database, sensors
 
 def get_indoor_content(page: ft.Page, lang: str):
     points_layer = ft.Stack(width=320, height=450)
-    
-    # Imagen con sistema de emergencia
-    map_image = ft.Image(
-        src="plano_real.jpg",
-        width=320, height=450,
-        fit="contain",
-        error_content=ft.Container(
-            content=ft.Text("⚠️ plano_real.jpg no encontrado en assets", color="white"),
-            bgcolor="red", alignment=ft.alignment.center
-        )
-    )
+    debug_text = ft.Text("Toca el plano para ver los datos", color=ft.Colors.AMBER, size=12)
 
-    def handle_tap(e: ft.ContainerTapEvent):
+    def handle_tap(e):
+        # 1. Modo Forense: Escupir todo lo que tiene el evento "e"
         try:
-            # Detección de coordenadas compatible con todas las versiones
-            x = getattr(e, 'local_x', 160)
-            y = getattr(e, 'local_y', 225)
+            vars_evento = str(dir(e))
+            debug_text.value = f"Detectado: {vars_evento[:100]}..."
+            page.update()
+        except:
+            pass
+
+        # 2. Intentar dibujar
+        try:
+            x = getattr(e, 'local_x', getattr(e, 'x', 160))
+            y = getattr(e, 'local_y', getattr(e, 'y', 225))
             
             rssi = sensors.get_wifi_signal()
             dot_color = ft.Colors.GREEN if rssi > -60 else ft.Colors.RED
@@ -30,14 +28,21 @@ def get_indoor_content(page: ft.Page, lang: str):
             )
             points_layer.controls.append(dot)
             page.update()
-        except:
-            pass
+        except Exception as ex:
+            debug_text.value = f"Fallo al dibujar: {str(ex)}"
+            page.update()
+
+    touch_area = ft.GestureDetector(
+        on_tap_down=handle_tap,
+        content=ft.Container(width=320, height=450, bgcolor=ft.Colors.TRANSPARENT)
+    )
 
     return ft.Column([
-        ft.Text("Mapeo Indoor", size=24, weight="bold"),
+        ft.Text("Mapeo Indoor", size=24, weight="bold", color=ft.Colors.BLUE),
+        debug_text,
         ft.Stack([
-            map_image,
+            ft.Image(src="plano_real.jpg", width=320, height=450, fit="contain"),
             points_layer,
-            ft.Container(width=320, height=450, bgcolor=ft.Colors.TRANSPARENT, on_click=handle_tap)
+            touch_area
         ], width=320, height=450)
     ], horizontal_alignment="center")
