@@ -6,7 +6,7 @@ import ssl
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    status = ft.Text("Listo", color=ft.colors.GREY_400)
+    status = ft.Text("Listo", color="grey")
     map_img = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Pulsa+Boton", width=320, height=300, border_radius=10)
 
     def ubicar(e):
@@ -15,7 +15,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
         
         def task():
             try:
-                # Bypass de SSL para que Android no bloquee la conexión
+                # Bypass de seguridad SSL para Android
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
@@ -27,21 +27,21 @@ def get_outdoor_content(page: ft.Page, lang: str):
                 rssi = sensors.get_wifi_signal()
                 database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
                 
-                # Actualizar UI
+                # Actualizar pantalla con el mapa real
                 status.value = f"✅ OK: {lat[:7]}, {lon[:7]}"
-                status.color = ft.colors.GREEN
-                map_img.src = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=15&size=320x300&markers={lat},{lon},red"
+                status.color = "green"
+                map_img.src = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=16&size=320x300&markers={lat},{lon},red"
                 page.update()
             except Exception as ex:
                 status.value = f"❌ Error: {str(ex)[:30]}"
-                status.color = ft.colors.RED
+                status.color = "red"
                 page.update()
 
         threading.Thread(target=task, daemon=True).start()
 
     return ft.Column([
-        ft.Text("Outdoor", size=24, weight="bold", color=ft.colors.GREEN),
-        ft.ElevatedButton("ESCANEAR RED/IP", icon=ft.icons.WIFI, on_click=ubicar),
+        ft.Text("Mapeo Outdoor", size=24, weight="bold", color="green"),
+        ft.ElevatedButton("ESCANEAR RED/IP", icon="wifi", on_click=ubicar, bgcolor="blue", color="white"),
         status,
-        ft.Container(content=map_img, border=ft.border.all(1, "white"), border_radius=10)
-    ], horizontal_alignment="center")
+        ft.Container(content=map_img, border=ft.border.all(2, "white"), border_radius=10)
+    ], horizontal_alignment="center", spacing=15)
