@@ -1,8 +1,5 @@
 import flet as ft
-import urllib.request
-import json
 import threading
-import ssl
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
@@ -27,60 +24,66 @@ def get_outdoor_content(page: ft.Page, lang: str):
         )
 
         def ubicar(e):
-            status.value = "⏳ Conectando al radar..."
+            status.value = "⏳ Solicitando permiso de GPS preciso..."
             status.color = "orange"
             status.update() 
             
             def task():
                 try:
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    
                     lat, lon = None, None
                     
-                    # 🔥 HACK DE VELOCIDAD: El disfraz de Google Chrome 🔥
-                    # Con esto el servidor nos da acceso VIP instantáneo
-                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    # 🔥 SOLUCIÓN DE PRECISIÓN: Usamos HTML5 Geolocation nativo del dispositivo
+                    # Esto obliga al dispositivo a activar el chip GPS/WiFi triangulación fina
+                    js_code = """
+                        navigator.geolocation.getCurrentPosition(
+                            pos => JSON.stringify({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                            err => JSON.stringify({error: err.message}),
+                            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+                        );
+                    """
+
+                    # Ejecutamos JS y esperamos respuesta sincronizada en el bucle de Flet
+                    raw_result = page.run_javascript(js_code)
+                    import json
+                    res = json.loads(raw_result)
+
+                    if 'error' in res:
+                        raise Exception(f"Error de GPS: {res['error']}")
                     
-                    try:
-                        req = urllib.request.Request("https://ipinfo.io/json", headers=headers)
-                        with urllib.request.urlopen(req, timeout=3, context=ctx) as r:
-                            data = json.loads(r.read().decode())
-                            lat, lon = data['loc'].split(',')
-                    except:
-                        req = urllib.request.Request("https://freeipapi.com/api/json", headers=headers)
-                        with urllib.request.urlopen(req, timeout=3, context=ctx) as r:
-                            data = json.loads(r.read().decode())
-                            lat, lon = str(data['latitude']), str(data['longitude'])
-                            
+                    lat = str(res['lat'])
+                    lon = str(res['lon'])
+                    
+                    # Verificar que tenemos datos válidos
+                    if not lat or not lon:
+                        raise Exception("No se pudieron obtener coordenadas.")
+
                     # Guardamos en la base de datos de forma invisible
                     rssi = sensors.get_wifi_signal()
                     database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
                     
-                    # 🔥 HACK DE ZOOM: Reducimos la caja matemática para acercar el mapa 🔥
+                    # Mapa Zoom X3 (Lógica idéntica previa)
                     lat_f, lon_f = float(lat), float(lon)
-                    offset = 0.0015 # Antes era 0.005. Al hacerlo más pequeño, hacemos ZOOM IN.
+                    offset = 0.0015 
                     bbox = f"{lon_f-offset},{lat_f-offset},{lon_f+offset},{lat_f+offset}"
                     url_mapa = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export?bbox={bbox}&bboxSR=4326&imageSR=4326&size=320,300&f=image"
                     
                     map_img.src = url_mapa
                     map_img.update()
                     
-                    status.value = f"✅ Coordenadas: {lat[:7]}, {lon[:7]}\n💾 Guardado en historial"
+                    status.value = f"✅ Precisión: {lat}, {lon}\n💾 Guardado en historial"
                     status.color = "green"
                     status.update()
                     
                 except Exception as ex:
-                    status.value = f"❌ Error: Falló la red de internet"
+                    status.value = f"❌ Error: {str(ex)}\n(Asegúrate de dar permisos de ubicación)"
                     status.color = "red"
                     status.update()
 
             threading.Thread(target=task, daemon=True).start()
 
         return ft.Column([
-            ft.Text("Mapeo Outdoor", size=24, weight="bold", color="green"),
-            ft.ElevatedButton("ESCANEAR RED/IP", icon="wifi", on_click=ubicar, bgcolor="blue", color="white"),
+            ft.Text("Mapeo Outdoor (Precisión)", size=24, weight="bold", color="green"),
+            ft.ElevatedButton("ESCANEAR UBICACIÓN EXACTA", icon="wifi", on_click=ubicar, bgcolor="blue", color="white"),
             status,
             ft.Container(content=map_stack, border=ft.border.all(2, "grey"), border_radius=10)
         ], horizontal_alignment="center", spacing=15)
