@@ -11,14 +11,14 @@ def get_outdoor_content(page: ft.Page, lang: str):
         
         map_img = ft.Image(
             src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando...", 
-            width=320, height=300, border_radius=10
+            width=320, height=300, border_radius=10, fit=ft.ImageFit.COVER
         )
         
-        # 🔥 EL PIN INDESTRUCTIBLE: Un Emoji gigante siempre visible 🔥
+        # Emoji de chincheta ajustado milimétricamente
         pin_emoji = ft.Container(
-            content=ft.Text("📍", size=40),
-            left=140, # Centrado horizontal
-            top=110,  # Centrado vertical apuntando al medio
+            content=ft.Text("📍", size=45),
+            left=137, 
+            top=110,  
         )
 
         map_stack = ft.Stack(
@@ -27,9 +27,9 @@ def get_outdoor_content(page: ft.Page, lang: str):
         )
 
         def ubicar(e):
-            status.value = "⏳ Conectando..."
+            status.value = "⏳ Conectando al radar..."
             status.color = "orange"
-            status.update() # Forzamos a la pantalla a mostrar esto YA
+            status.update() 
             
             def task():
                 try:
@@ -39,27 +39,31 @@ def get_outdoor_content(page: ft.Page, lang: str):
                     
                     lat, lon = None, None
                     
-                    # 🚀 Intento 1: Servidor HTTPS ultrarrápido
+                    # 🔥 HACK DE VELOCIDAD: El disfraz de Google Chrome 🔥
+                    # Con esto el servidor nos da acceso VIP instantáneo
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    
                     try:
-                        with urllib.request.urlopen("https://ipinfo.io/json", timeout=3, context=ctx) as r:
+                        req = urllib.request.Request("https://ipinfo.io/json", headers=headers)
+                        with urllib.request.urlopen(req, timeout=3, context=ctx) as r:
                             data = json.loads(r.read().decode())
                             lat, lon = data['loc'].split(',')
                     except:
-                        # 🚀 Intento 2: Respaldo HTTPS
-                        with urllib.request.urlopen("https://freeipapi.com/api/json", timeout=3, context=ctx) as r:
+                        req = urllib.request.Request("https://freeipapi.com/api/json", headers=headers)
+                        with urllib.request.urlopen(req, timeout=3, context=ctx) as r:
                             data = json.loads(r.read().decode())
                             lat, lon = str(data['latitude']), str(data['longitude'])
                             
-                    # Guardamos en BD
+                    # Guardamos en la base de datos de forma invisible
                     rssi = sensors.get_wifi_signal()
                     database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
                     
-                    # Generamos el mapa de Ontígola/tu zona
+                    # 🔥 HACK DE ZOOM: Reducimos la caja matemática para acercar el mapa 🔥
                     lat_f, lon_f = float(lat), float(lon)
-                    bbox = f"{lon_f-0.005},{lat_f-0.005},{lon_f+0.005},{lat_f+0.005}"
+                    offset = 0.0015 # Antes era 0.005. Al hacerlo más pequeño, hacemos ZOOM IN.
+                    bbox = f"{lon_f-offset},{lat_f-offset},{lon_f+offset},{lat_f+offset}"
                     url_mapa = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export?bbox={bbox}&bboxSR=4326&imageSR=4326&size=320,300&f=image"
                     
-                    # Actualizamos cada pieza por separado para evitar cuelgues
                     map_img.src = url_mapa
                     map_img.update()
                     
@@ -68,7 +72,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
                     status.update()
                     
                 except Exception as ex:
-                    status.value = f"❌ Error: Falló la conexión de red"
+                    status.value = f"❌ Error: Falló la red de internet"
                     status.color = "red"
                     status.update()
 
