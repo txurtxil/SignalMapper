@@ -1,9 +1,4 @@
 import flet as ft
-import urllib.request
-import json
-import threading
-import ssl
-import time
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
@@ -27,69 +22,26 @@ def get_outdoor_content(page: ft.Page, lang: str):
         )
 
         def ubicar(e):
-            status.value = "⏳ Iniciando localización..."
+            status.value = "⏳ Solicitando permiso de ubicación..."
             status.color = "orange"
             status.update() 
             
-            def task():
-                lat, lon = None, None
-                start_time = time.time()
-                
-                # 1. Intento prioritario: Geolocalización JS (Precisión)
-                try:
-                    js_code = """
-                        navigator.geolocation.getCurrentPosition(
-                            pos => JSON.stringify({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                            err => JSON.stringify({code: err.code, message: err.message}),
-                            { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
-                        );
-                    """
+            # 🔥 SOLUCIÓN DEFINITIVA: Usamos ft.Location de Flet (API nativa del SO)
+            location = ft.Location()
+            
+            def on_location_change(e: ft.LocationChangeEvent):
+                if e.latitude and e.longitude:
+                    lat = str(e.latitude)
+                    lon = str(e.longitude)
                     
-                    raw_result = page.run_javascript(js_code)
-                    res = json.loads(raw_result) if raw_result else {}
-                    
-                    if 'message' in res:
-                        raise Exception(f"Error GPS: {res['message']}")
-                    
-                    lat = str(res.get('lat'))
-                    lon = str(res.get('lon'))
-                    
-                except Exception as gps_err:
-                    print(f"GPS Falló: {gps_err}")
-                    # 2. Fallback inmediato a IP si falla el GPS
+                    # Guardamos en la base de datos
                     try:
-                        ctx = ssl.create_default_context()
-                        ctx.check_hostname = False
-                        ctx.verify_mode = ssl.CERT_NONE
-                        headers = {'User-Agent': 'Mozilla/5.0'}
-                        
-                        req = urllib.request.Request("https://ipinfo.io/json", headers=headers)
-                        with urllib.request.urlopen(req, timeout=3, context=ctx) as r:
-                            data = json.loads(r.read().decode())
-                            lat, lon = data['loc'].split(',')
-                            status.value += "\n⚠️ Usando ubicación aproximada (IP)"
-                    except Exception as ip_err:
-                        status.value = f"❌ Fallo total: {str(ip_err)}"
-                        status.color = "red"
-                        status.update()
-                        return
-
-                # Verificación final de coordenadas
-                if not lat or not lon or lat == 'None':
-                    status.value = "❌ No se pudo obtener ninguna ubicación"
-                    status.color = "red"
-                    status.update()
-                    return
-
-                # Guardamos en la base de datos
-                try:
-                    rssi = sensors.get_wifi_signal()
-                    database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
-                except:
-                    pass # Ignoramos errores de DB para no bloquear el mapa
-
-                # Mapa Zoom X3
-                try:
+                        rssi = sensors.get_wifi_signal()
+                        database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
+                    except:
+                        pass
+                    
+                    # Mapa Zoom X3
                     lat_f, lon_f = float(lat), float(lon)
                     offset = 0.0015 
                     bbox = f"{lon_f-offset},{lat_f-offset},{lon_f+offset},{lat_f+offset}"
@@ -98,19 +50,38 @@ def get_outdoor_content(page: ft.Page, lang: str):
                     map_img.src = url_mapa
                     map_img.update()
                     
-                    elapsed = time.time() - start_time
-                    status.value = f"✅ Ubicación: {lat}, {lon}\n⏱️ Tiempo: {elapsed:.1f}s\n💾 Guardado"
+                    status.value = f"✅ Ubicación GPS: {lat}, {lon}\n💾 Guardado"
                     status.color = "green"
                     status.update()
-                except Exception as map_err:
-                    status.value = f"❌ Error al cargar mapa: {str(map_err)}"
+                    
+                    # Detenemos la actualización continua después de obtener la primera lectura
+                    location.stop_updates()
+                else:
+                    status.value = "❌ No se pudo obtener ubicación GPS"
                     status.color = "red"
                     status.update()
+                    location.stop_updates()
 
-            threading.Thread(target=task, daemon=True).start()
+            def on_permission_error(e: ft.LocationPermissionError):
+                status.value = "❌ Permiso de ubicación denegado. Actívalo en Ajustes."
+                status.color = "red"
+                status.update()
+
+            # Registramos los callbacks
+            location.on_change = on_location_change
+            location.on_permission_error = on_permission_error
+            
+            # Solicitamos permisos y comenzamos la actualización
+            try:
+                location.request_permission()
+                location.start_updates()
+            except Exception as ex:
+                status.value = f"❌ Error al iniciar GPS: {str(ex)}"
+                status.color = "red"
+                status.update()
 
         return ft.Column([
-            ft.Text("Mapeo Outdoor (Precisión)", size=24, weight="bold", color="green"),
+            ft.Text("Mapeo Outdoor (GPS Real)", size=24, weight="bold", color="green"),
             ft.ElevatedButton("ESCANEAR UBICACIÓN EXACTA", icon="wifi", on_click=ubicar, bgcolor="blue", color="white"),
             status,
             ft.Container(content=map_stack, border=ft.border.all(2, "grey"), border_radius=10)
