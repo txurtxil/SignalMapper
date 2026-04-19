@@ -9,23 +9,28 @@ def get_indoor_content(page: ft.Page, lang: str):
     def handle_tap(e):
         x, y = 160, 225
         try:
-            # 🔥 EL HACK: Pasamos el evento a texto bruto y buscamos los números
             s = str(e)
             match_x = re.search(r'x=([0-9.]+)', s)
             match_y = re.search(r'y=([0-9.]+)', s)
-            
             if match_x and match_y:
                 x = float(match_x.group(1))
                 y = float(match_y.group(1))
-                debug_text.value = f"✅ Regex Extractor: X:{int(x)} Y:{int(y)}"
+                debug_text.value = f"✅ X:{int(x)} Y:{int(y)}"
             else:
-                debug_text.value = f"⚠️ Fallo Regex en texto: {s[:50]}..."
+                debug_text.value = f"⚠️ Fallo Regex"
         except Exception as ex:
             debug_text.value = f"⚠️ Error: {str(ex)}"
         
         rssi = sensors.get_wifi_signal()
         dot_color = ft.Colors.GREEN if rssi > -60 else ft.Colors.RED
         
+        # 🔥 EL ESLABÓN PERDIDO: GUARDAMOS EN LA BASE DE DATOS 🔥
+        try:
+            database.add_scan("Indoor", f"X:{int(x)}, Y:{int(y)}", rssi)
+            debug_text.value += " | 💾 Guardado OK"
+        except Exception as ex:
+            debug_text.value += f" | ❌ Error BD: {str(ex)}"
+
         dot = ft.Container(
             width=16, height=16, bgcolor=dot_color, 
             border_radius=8, left=x-8, top=y-8
@@ -33,7 +38,6 @@ def get_indoor_content(page: ft.Page, lang: str):
         points_layer.controls.append(dot)
         page.update()
 
-    # Añadimos on_pan_start (deslizamiento corto) que a veces reporta mejor las coordenadas en Android
     touch_area = ft.GestureDetector(
         on_tap_down=handle_tap,
         on_pan_start=handle_tap,

@@ -2,6 +2,7 @@ import flet as ft
 import urllib.request
 import json
 import threading
+from app.services import database, sensors # Importamos las herramientas de datos
 
 def get_outdoor_content(page: ft.Page, lang: str):
     status_text = ft.Text("Modo de escaneo por Red/Antena listo", size=14, color=ft.Colors.GREY_400)
@@ -11,6 +12,15 @@ def get_outdoor_content(page: ft.Page, lang: str):
         status_text.value = f"✅ Ubicación ({source}):\nLat: {lat:.4f} | Lon: {lon:.4f}"
         status_text.color = ft.Colors.GREEN
         map_image.src = f"https://dummyimage.com/320x300/263238/4fc3f7.png&text={source}:+{lat:.2f},+{lon:.2f}"
+        
+        # 🔥 EL ESLABÓN PERDIDO: GUARDAMOS EN LA BASE DE DATOS 🔥
+        try:
+            rssi = sensors.get_wifi_signal()
+            database.add_scan(f"Outdoor ({source})", f"{lat:.4f}, {lon:.4f}", rssi)
+            status_text.value += "\n💾 Añadido al Historial"
+        except Exception as ex:
+            status_text.value += f"\n❌ Fallo BD: {ex}"
+
         page.update()
 
     def btn_usar_red(e):
@@ -19,7 +29,6 @@ def get_outdoor_content(page: ft.Page, lang: str):
         page.update()
         def task():
             try:
-                # Usamos la API de triangulación por IP (Súper estable)
                 with urllib.request.urlopen("https://ipinfo.io/json", timeout=5) as resp:
                     data = json.loads(resp.read().decode())
                     lat, lon = map(float, data['loc'].split(','))
@@ -33,7 +42,7 @@ def get_outdoor_content(page: ft.Page, lang: str):
     return ft.Column([
         ft.Text("Mapeo Outdoor", size=24, weight="bold", color=ft.Colors.GREEN),
         ft.Text(
-            "⚠️ GPS Satelital inhabilitado temporalmente debido a un bug en la plataforma base de Android (Issue #6384). Se usa triangulación de antenas.", 
+            "⚠️ GPS Satelital inhabilitado temporalmente debido a bug nativo de Android. Se usa triangulación.", 
             color=ft.Colors.ORANGE, size=11, text_align=ft.TextAlign.CENTER
         ),
         ft.ElevatedButton("UBICAR POR ANTENA / RED", icon=ft.Icons.WIFI_TETHERING, on_click=btn_usar_red, bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
