@@ -3,7 +3,6 @@ import urllib.request
 import json
 import threading
 import ssl
-import base64
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
@@ -11,50 +10,51 @@ def get_outdoor_content(page: ft.Page, lang: str):
     map_img = ft.Image(src="https://dummyimage.com/320x300/263238/ffffff.png&text=Pulsa+Boton", width=320, height=300, border_radius=10)
 
     def ubicar(e):
-        status.value = "⏳ Triangulando y generando mapa..."
+        status.value = "⏳ Triangulando (Nuevos servidores)..."
         status.color = "orange"
         page.update()
         
         def task():
             try:
-                # 1. Bypass SSL para que Python pueda navegar
+                # Bypass SSL
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
                 
-                # 2. Sacamos las coordenadas de la Red
-                with urllib.request.urlopen("https://ipinfo.io/json", timeout=7, context=ctx) as r:
-                    data = json.loads(r.read().decode())
-                    lat, lon = data['loc'].split(',')
+                # 🔥 MEJORA 1: DOBLE MOTOR DE TRIANGULACIÓN ANTIFALLOS
+                lat, lon = None, None
+                try:
+                    # Intento 1: Servidor principal (Ultrarrápido)
+                    with urllib.request.urlopen("http://ip-api.com/json/", timeout=4, context=ctx) as r:
+                        data = json.loads(r.read().decode())
+                        lat, lon = str(data['lat']), str(data['lon'])
+                except:
+                    # Intento 2: Servidor de respaldo
+                    with urllib.request.urlopen("https://ipinfo.io/json", timeout=4, context=ctx) as r:
+                        data = json.loads(r.read().decode())
+                        lat, lon = data['loc'].split(',')
                     
+                # Guardar en base de datos
                 rssi = sensors.get_wifi_signal()
                 database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
                 
-                # 3. EL CABALLO DE TROYA: Descargamos el mapa en Python
-                url_mapa = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=16&size=320x300&markers={lat},{lon},red"
+                # 🔥 MEJORA 2: SERVIDOR DE MAPAS TOPOGRÁFICO ARCGIS (Irrompible)
+                # Calculamos una "caja" alrededor de tu ubicación para el zoom
+                lat_f = float(lat)
+                lon_f = float(lon)
+                bbox = f"{lon_f-0.005},{lat_f-0.005},{lon_f+0.005},{lat_f+0.005}"
+                url_mapa = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export?bbox={bbox}&bboxSR=4326&imageSR=4326&size=320,300&f=image"
                 
-                # Nos hacemos pasar por Firefox para que el servidor no nos bloquee
-                req = urllib.request.Request(url_mapa, headers={'User-Agent': 'Mozilla/5.0'})
+                # Inyectamos directamente la imagen URL (ArcGIS no bloquea)
+                map_img.src_base64 = None 
+                map_img.src = url_mapa
                 
-                try:
-                    with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
-                        img_data = response.read()
-                        # Convertimos la imagen a texto puro
-                        img_b64 = base64.b64encode(img_data).decode('utf-8')
-                        map_img.src = None # Quitamos la url directa
-                        map_img.src_base64 = img_b64 # Le inyectamos los píxeles a la fuerza
-                except Exception as e_img:
-                    # Si el servidor de mapas está caído, ponemos una imagen de emergencia
-                    map_img.src_base64 = None
-                    map_img.src = f"https://dummyimage.com/320x300/263238/4fc3f7.png&text=Red:+{lat[:7]},+{lon[:7]}"
-
-                # 4. Actualizamos pantalla
                 status.value = f"✅ OK: {lat[:7]}, {lon[:7]}\n💾 Guardado en historial"
                 status.color = "green"
                 page.update()
                 
             except Exception as ex:
-                status.value = f"❌ Error: {str(ex)[:30]}"
+                status.value = f"❌ Error de red externa. Intenta de nuevo."
                 status.color = "red"
                 page.update()
 
