@@ -3,43 +3,33 @@ import urllib.request
 import json
 import threading
 import ssl
-import traceback
 from app.services import database, sensors
 
 def get_outdoor_content(page: ft.Page, lang: str):
-    error_container = ft.Column()
-
     try:
         status = ft.Text("Listo para escanear", color="grey")
         
         map_img = ft.Image(
-            src="https://dummyimage.com/320x300/263238/ffffff.png&text=Pulsa+Boton", 
-            width=320, 
-            height=300, 
-            border_radius=10
+            src="https://dummyimage.com/320x300/263238/ffffff.png&text=Esperando...", 
+            width=320, height=300, border_radius=10
         )
         
-        # 🔥 SOLUCIÓN INDESTRUCTIBLE: Posición absoluta matemática 🔥
-        # Centro X = (320 - 45) / 2 = 137.5
-        # Centro Y = (300 - 45) / 2 = 127.5
-        pin_icon = ft.Container(
-            content=ft.Icon("location_on", color="red", size=45),
-            left=137,
-            top=127,
-            visible=False
+        # 🔥 EL PIN INDESTRUCTIBLE: Un Emoji gigante siempre visible 🔥
+        pin_emoji = ft.Container(
+            content=ft.Text("📍", size=40),
+            left=140, # Centrado horizontal
+            top=110,  # Centrado vertical apuntando al medio
         )
 
         map_stack = ft.Stack(
-            controls=[map_img, pin_icon],
-            width=320,
-            height=300
+            controls=[map_img, pin_emoji],
+            width=320, height=300
         )
 
         def ubicar(e):
-            status.value = "⏳ Triangulando..."
+            status.value = "⏳ Conectando..."
             status.color = "orange"
-            pin_icon.visible = False
-            page.update()
+            status.update() # Forzamos a la pantalla a mostrar esto YA
             
             def task():
                 try:
@@ -47,27 +37,40 @@ def get_outdoor_content(page: ft.Page, lang: str):
                     ctx.check_hostname = False
                     ctx.verify_mode = ssl.CERT_NONE
                     
-                    with urllib.request.urlopen("http://ip-api.com/json/", timeout=5, context=ctx) as r:
-                        data = json.loads(r.read().decode())
-                        lat, lon = str(data['lat']), str(data['lon'])
-                        
+                    lat, lon = None, None
+                    
+                    # 🚀 Intento 1: Servidor HTTPS ultrarrápido
+                    try:
+                        with urllib.request.urlopen("https://ipinfo.io/json", timeout=3, context=ctx) as r:
+                            data = json.loads(r.read().decode())
+                            lat, lon = data['loc'].split(',')
+                    except:
+                        # 🚀 Intento 2: Respaldo HTTPS
+                        with urllib.request.urlopen("https://freeipapi.com/api/json", timeout=3, context=ctx) as r:
+                            data = json.loads(r.read().decode())
+                            lat, lon = str(data['latitude']), str(data['longitude'])
+                            
+                    # Guardamos en BD
                     rssi = sensors.get_wifi_signal()
                     database.add_scan("Outdoor", f"{lat[:7]},{lon[:7]}", rssi)
                     
+                    # Generamos el mapa de Ontígola/tu zona
                     lat_f, lon_f = float(lat), float(lon)
                     bbox = f"{lon_f-0.005},{lat_f-0.005},{lon_f+0.005},{lat_f+0.005}"
                     url_mapa = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export?bbox={bbox}&bboxSR=4326&imageSR=4326&size=320,300&f=image"
                     
+                    # Actualizamos cada pieza por separado para evitar cuelgues
                     map_img.src = url_mapa
-                    pin_icon.visible = True
-                    status.value = f"✅ OK: {lat[:7]}, {lon[:7]}"
+                    map_img.update()
+                    
+                    status.value = f"✅ Coordenadas: {lat[:7]}, {lon[:7]}\n💾 Guardado en historial"
                     status.color = "green"
-                    page.update()
+                    status.update()
                     
                 except Exception as ex:
-                    status.value = f"❌ Error: Red lenta o bloqueada"
+                    status.value = f"❌ Error: Falló la conexión de red"
                     status.color = "red"
-                    page.update()
+                    status.update()
 
             threading.Thread(target=task, daemon=True).start()
 
@@ -75,12 +78,8 @@ def get_outdoor_content(page: ft.Page, lang: str):
             ft.Text("Mapeo Outdoor", size=24, weight="bold", color="green"),
             ft.ElevatedButton("ESCANEAR RED/IP", icon="wifi", on_click=ubicar, bgcolor="blue", color="white"),
             status,
-            ft.Container(content=map_stack, border=ft.border.all(2, "white"), border_radius=10)
+            ft.Container(content=map_stack, border=ft.border.all(2, "grey"), border_radius=10)
         ], horizontal_alignment="center", spacing=15)
 
     except Exception as e:
-        return ft.Column([
-            ft.Text("Fallo al cargar Outdoor", size=20, color="red"),
-            ft.Text(f"Error: {str(e)}", color="orange"),
-            ft.Text(traceback.format_exc(), size=10, color="grey")
-        ])
+        return ft.Text(f"Fallo grave: {str(e)}", color="red")
