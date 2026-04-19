@@ -1,70 +1,57 @@
 import sqlite3
-import csv
-import os
-import tempfile
 
-# En Android buscamos una carpeta temporal que sí tenga permisos de escritura
-try:
-    writable_dir = os.environ.get("TMPDIR", tempfile.gettempdir())
-    DB_PATH = os.path.join(writable_dir, "scans.db")
-except:
-    DB_PATH = ":memory:" # Salvavidas: si falla, usa la RAM para que la app no crashee
+# Usamos un archivo de base de datos nuevo por si el anterior se quedó corrupto
+DB_PATH = "signalmapper_v2.db"
 
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
+        c = conn.cursor()
+        c.execute('''
             CREATE TABLE IF NOT EXISTS scans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                mode TEXT,
-                location TEXT,
+                tipo TEXT,
+                coordenadas TEXT,
                 rssi INTEGER,
-                color TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         conn.commit()
         conn.close()
     except Exception as e:
-        print("Error BD:", e)
+        print("Error BD init:", e)
 
-def add_scan(mode, location, rssi, color):
+def add_scan(tipo, coordenadas, rssi, color=""):
+    try:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT INTO scans (tipo, coordenadas, rssi) VALUES (?, ?, ?)", 
+                  (str(tipo), str(coordenadas), int(rssi)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Error BD add:", e)
+
+def get_all_scans():
+    try:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT id, tipo, coordenadas, rssi, datetime(fecha, 'localtime') FROM scans ORDER BY id DESC")
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        # Si la consulta falla, devuelve el error como si fuera un escaneo para que lo leamos
+        return [(0, "ERROR", str(e), 0, "Fallo Base Datos")]
+
+def clear_scans():
     try:
         conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO scans (mode, location, rssi, color) VALUES (?, ?, ?, ?)", 
-                       (mode, location, rssi, color))
+        c = conn.cursor()
+        c.execute("DELETE FROM scans")
         conn.commit()
         conn.close()
     except:
         pass
-
-def get_history():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT mode, location, rssi, timestamp FROM scans ORDER BY timestamp DESC")
-        data = cursor.fetchall()
-        conn.close()
-        return data
-    except:
-        return []
-
-def export_to_csv():
-    try:
-        filename = os.path.join(writable_dir, "signal_data.csv")
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM scans")
-        rows = cursor.fetchall()
-        
-        with open(filename, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['ID', 'Modo', 'Ubicación/Plano', 'RSSI (dBm)', 'Color', 'Fecha/Hora'])
-            writer.writerows(rows)
-        
-        conn.close()
-        return filename
-    except:
-        return "Error al exportar"
