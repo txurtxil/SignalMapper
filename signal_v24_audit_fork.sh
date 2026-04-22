@@ -1,3 +1,22 @@
+#!/bin/bash
+cd /workspaces/SignalMapper/app_nativa
+
+echo "🧬 1/3 Mutando el ADN de la App para instalación paralela..."
+# Instalamos la herramienta para cambiar el nombre y el ID del paquete
+flutter pub global activate rename
+export PATH="$PATH":"$HOME/.pub-cache/bin"
+
+# Cambiamos el nombre visible en el móvil
+rename setAppName --targets android --value "SM Audit"
+# Cambiamos el ID interno para que Android no sobrescriba la V23
+rename setBundleId --targets android --value "com.txurtxil.smaudit"
+
+echo "🧹 Limpiando caché para aplicar el nuevo ADN..."
+flutter clean
+flutter pub get
+
+echo "🧠 2/3 Inyectando Motor Forense y Terminal Deep RF..."
+cat << 'DART' > lib/main.dart
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -24,13 +43,14 @@ void main() async {
 class DatabasePro {
   static late Database db;
   static Future<void> init() async {
-    db = await openDatabase(p.join(await getDatabasesPath(), 'signal_v26_audit.db'),
+    db = await openDatabase(p.join(await getDatabasesPath(), 'signal_v24_audit.db'),
       onCreate: (db, version) {
         return db.execute('CREATE TABLE audits(id INTEGER PRIMARY KEY, session_id TEXT, type TEXT, dbm INTEGER, tech TEXT, extra_data TEXT, lat REAL, lng REAL, x REAL, y REAL, address TEXT, timestamp TEXT)');
       }, version: 1);
   }
   static Future<void> insertAudit(Map<String, dynamic> audit) async { await db.insert('audits', audit, conflictAlgorithm: ConflictAlgorithm.replace); }
   static Future<List<Map<String, dynamic>>> getAudits() async { return await db.query('audits', orderBy: 'timestamp DESC'); }
+  
   static Future<String> exportSessionCSV(String sessionId, String type) async {
     final data = await db.query('audits', where: 'session_id = ?', whereArgs: [sessionId]);
     String csv = "ID,Sesion,Tipo,DBM,Tecnologia,Extra,Lat,Lng,X,Y,Direccion,Fecha\n";
@@ -44,7 +64,7 @@ class DatabasePro {
   }
 }
 
-// ================= UTILIDADES FORENSES =================
+// ================= TRADUCTOR RF =================
 bool isCellular(String techOrType) {
   String t = techOrType.toLowerCase();
   return t.contains('4g') || t.contains('5g') || t.contains('lte') || t.contains('nr') || t.contains('cell') || t.contains('móvil') || t.contains('outdoor');
@@ -55,7 +75,7 @@ Color getGodColor(int dbm, String tech) {
     if (dbm >= -85) return Colors.greenAccent;
     if (dbm >= -100) return Colors.yellowAccent;
     if (dbm >= -110) return Colors.orangeAccent;
-    return Colors.purpleAccent; 
+    return Colors.purpleAccent; // ZONA MUERTA
   } else {
     if (dbm >= -65) return Colors.greenAccent;
     if (dbm >= -75) return Colors.yellowAccent;
@@ -64,14 +84,7 @@ Color getGodColor(int dbm, String tech) {
   }
 }
 
-String sanitizeRF(dynamic value) {
-  if (value == null) return '-';
-  String strVal = value.toString();
-  if (strVal == '2147483647' || strVal == '2147483647.0') return '[HIDDEN]';
-  return strVal;
-}
-
-// ================= NAVEGACIÓN Y PERMISOS SEGUROS =================
+// ================= NAVEGACIÓN =================
 class PowerProNavigation extends StatefulWidget { const PowerProNavigation({super.key}); @override State<PowerProNavigation> createState() => _PowerProNavigationState(); }
 class _PowerProNavigationState extends State<PowerProNavigation> {
   int _currentIndex = 1;
@@ -83,12 +96,9 @@ class _PowerProNavigationState extends State<PowerProNavigation> {
   }
 
   Future<void> _requestPermissions() async {
-    await [Permission.location, Permission.phone, Permission.notification].request();
+    await [Permission.location, Permission.phone].request();
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) await Geolocator.requestPermission();
-    if (await Permission.location.isGranted) {
-      await Permission.locationAlways.request();
-    }
   }
 
   @override Widget build(BuildContext context) {
@@ -107,101 +117,50 @@ class _PowerProNavigationState extends State<PowerProNavigation> {
   }
 }
 
-// ================= OUTDOOR PRO (NATIVE GEOLOCATOR BACKGROUND) =================
+// ================= OUTDOOR PRO (MODO FORENSE) =================
 class OutdoorPro extends StatefulWidget { const OutdoorPro({super.key}); @override State<OutdoorPro> createState() => _OutdoorProState(); }
 class _OutdoorProState extends State<OutdoorPro> {
   static const platform = MethodChannel('com.signalmapper/power_pro');
   LatLng? currentPos; 
-  Map<String, dynamic> currentAudit = {'dbm': 0, 'tech': 'ESPERANDO...', 'operator': '-', 'cell_id': '-', 'rsrq': 0, 'snr': 0};
+  Map<String, dynamic> currentAudit = {'dbm': 0, 'tech': 'ESPERANDO TELEMETRÍA...', 'operator': '-', 'cell_id': '-', 'rsrq': 0, 'snr': 0};
   String currentStreet = "NO FIX";
   
-  int _latency = 0;
-  String _lastCellId = "";
-  String _anomalyAlert = "";
+  // CAPAS SEPARADAS PARA EN VIVO Y FORENSE
+  final List<CircleMarker> _livePoints = []; 
+  final List<LatLng> _liveRoute = [];
   
-  final List<CircleMarker> _livePoints = []; final List<LatLng> _liveRoute = [];
-  final List<CircleMarker> _forensicPoints = []; final List<LatLng> _forensicRoute = [];
+  final List<CircleMarker> _forensicPoints = []; 
+  final List<LatLng> _forensicRoute = [];
 
-  String sessionId = ""; bool isTracking = false; final MapController _mapController = MapController();
-  
-  // EL NUEVO MOTOR: Stream nativo del GPS
-  StreamSubscription<Position>? _positionStream;
-
-  @override
-  void dispose() {
-    _positionStream?.cancel();
-    super.dispose();
-  }
+  String sessionId = ""; bool isTracking = false; Timer? timer; final MapController _mapController = MapController();
 
   void _toggleTracking() async { 
-    if (isTracking) {
-      // APAGAR
-      _positionStream?.cancel();
-      setState(() { isTracking = false; });
-    } else {
-      // ENCENDER
-      setState(() { 
-        isTracking = true; 
-        sessionId = "Audit_${DateTime.now().millisecondsSinceEpoch}";
-        _liveRoute.clear(); _livePoints.clear(); 
-        _lastCellId = ""; _anomalyAlert = "";
-        currentStreet = "GPS LISTO (Motor Nativo)";
-      });
-      
-      // CONFIGURACIÓN OFICIAL DEL MODO FANTASMA DEL GPS (Cada 2 metros)
-      late LocationSettings locationSettings;
-      if (Platform.isAndroid) {
-        locationSettings = AndroidSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 2, // Lanza evento cada 2 metros caminados
-          forceLocationManager: false,
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationText: "Mapeando redes y latencia. Mantén el móvil bloqueado de forma segura.",
-            notificationTitle: "SM Audit Activo",
-            enableWakeLock: true,
-            notificationIcon: AndroidResource(name: 'ic_bg_service_small', defType: 'drawable'),
-          ),
-        );
-      } else {
-        locationSettings = const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2);
-      }
-
-      _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position? position) {
-        if (position != null && mounted) {
-          _recordData(position);
-        }
-      });
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("CRITICAL: GPS OFFLINE"), backgroundColor: Colors.red));
+      return;
     }
+    setState(() { 
+      isTracking = !isTracking; 
+      if (isTracking) {
+        sessionId = "Audit_${DateTime.now().millisecondsSinceEpoch}";
+        _liveRoute.clear(); _livePoints.clear(); currentStreet = "BUSCANDO SATÉLITES...";
+        timer = Timer.periodic(const Duration(seconds: 4), (t) => _recordData()); 
+        _recordData();
+      } else { timer?.cancel(); }
+    }); 
   }
 
-  Future<void> _recordData(Position p) async {
+  Future<void> _recordData() async {
     try {
-      final stopwatch = Stopwatch()..start();
-      bool hasInternet = false;
-      try {
-        final result = await InternetAddress.lookup('google.com').timeout(const Duration(seconds: 2));
-        hasInternet = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-      } catch (_) {}
-      stopwatch.stop();
-      int latency = hasInternet ? stopwatch.elapsedMilliseconds : 999;
-
       final nativeAudit = await platform.invokeMethod('getCellularAudit');
       final audit = Map<String, dynamic>.from(nativeAudit);
       int dbm = audit['dbm'] ?? -120;
-      
-      String sanitizedCID = sanitizeRF(audit['cell_id']);
-      String sanitizedSNR = sanitizeRF(audit['snr']);
-      String sanitizedRSRQ = sanitizeRF(audit['rsrq']);
-      
-      audit['cell_id'] = sanitizedCID; audit['snr'] = sanitizedSNR; audit['rsrq'] = sanitizedRSRQ;
 
-      String tempAlert = "";
-      if (_lastCellId != "" && sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && _lastCellId != sanitizedCID) {
-        tempAlert = "⚠️ HANDOVER DETECTADO: CAMBIO DE TORRE";
-        HapticFeedback.heavyImpact(); 
-      }
-      if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-") _lastCellId = sanitizedCID;
-      if (latency > 300) tempAlert = "🔥 ALERTA DE LATENCIA: $latency ms";
+      Position? p;
+      try { p = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 3)); } 
+      catch (e) { p = await Geolocator.getLastKnownPosition(); }
+      if (p == null) return;
 
       LatLng pos = LatLng(p.latitude, p.longitude);
       String streetName = "TRACKING...";
@@ -212,26 +171,22 @@ class _OutdoorProState extends State<OutdoorPro> {
 
       await DatabasePro.insertAudit({
         'session_id': sessionId, 'type': 'outdoor', 'dbm': dbm, 'tech': audit['tech'], 'address': streetName,
-        'extra_data': "Op: ${audit['operator']} | CID: $sanitizedCID | RSRQ: $sanitizedRSRQ | SNR: $sanitizedSNR | LAT: $latency ms",
+        'extra_data': "Op: ${audit['operator']} | CID: ${audit['cell_id']} | RSRQ: ${audit['rsrq']} | SNR: ${audit['snr']}",
         'lat': p.latitude, 'lng': p.longitude, 'timestamp': DateTime.now().toIso8601String()
       });
-      
-      if (tempAlert.isEmpty) HapticFeedback.lightImpact();
+      HapticFeedback.lightImpact();
 
       if (mounted) setState(() {
-        currentPos = pos; currentAudit = audit; currentStreet = streetName; _latency = latency;
-        if (tempAlert.isNotEmpty) _anomalyAlert = tempAlert; 
+        currentPos = pos; currentAudit = audit; currentStreet = streetName;
         _liveRoute.add(pos); 
-        _livePoints.add(CircleMarker(point: pos, color: getGodColor(dbm, 'cell'), radius: 10, borderColor: latency > 300 ? Colors.red : Colors.black, borderStrokeWidth: 2));
+        // PUNTOS EN VIVO: Sólidos y con borde
+        _livePoints.add(CircleMarker(point: pos, color: getGodColor(dbm, 'cell'), radius: 10, borderColor: Colors.black, borderStrokeWidth: 2));
       });
       _mapController.move(pos, 17.5);
-      
-      if (tempAlert.isNotEmpty) {
-        Future.delayed(const Duration(seconds: 3), () { if (mounted) setState(() => _anomalyAlert = ""); });
-      }
     } catch (e) {}
   }
 
+  // IMPORTACIÓN FORENSE
   Future<void> _importForensicCSV() async {
     try {
       const fs.XTypeGroup typeGroup = fs.XTypeGroup(label: 'Archivos CSV', extensions: ['csv']);
@@ -248,17 +203,20 @@ class _OutdoorProState extends State<OutdoorPro> {
             LatLng pos = LatLng(double.parse(cols[6]), double.parse(cols[7]));
             setState(() { 
               _forensicRoute.add(pos); 
+              // PUNTOS FORENSES: Semitransparentes (Fantasmas), sin borde fuerte, un poco más grandes
               _forensicPoints.add(CircleMarker(point: pos, color: getGodColor(dbm, 'cell').withOpacity(0.4), radius: 14)); 
             });
             if (i == 1) _mapController.move(pos, 17.0);
           }
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("DATOS FORENSES CARGADOS"), backgroundColor: Colors.green[900]));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("DATOS FORENSES CARGADOS: ${_forensicPoints.length} puntos"), backgroundColor: Colors.green[900]));
       }
     } catch (e) {}
   }
 
-  void _clearForensics() { setState(() { _forensicRoute.clear(); _forensicPoints.clear(); }); }
+  void _clearForensics() {
+    setState(() { _forensicRoute.clear(); _forensicPoints.clear(); });
+  }
 
   @override Widget build(BuildContext context) {
     int dbm = currentAudit['dbm'] ?? 0;
@@ -269,38 +227,40 @@ class _OutdoorProState extends State<OutdoorPro> {
         title: const Text("AUDIT OUTDOOR", style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace', color: Colors.greenAccent)), 
         backgroundColor: const Color(0xFF121212), 
         actions: [
-          if (_forensicPoints.isNotEmpty) IconButton(icon: const Icon(Icons.layers_clear, color: Colors.redAccent), onPressed: _clearForensics),
-          IconButton(icon: const Icon(Icons.manage_search, color: Colors.greenAccent), onPressed: _importForensicCSV)
+          if (_forensicPoints.isNotEmpty) IconButton(icon: const Icon(Icons.layers_clear, color: Colors.redAccent), onPressed: _clearForensics, tooltip: "Limpiar Forense"),
+          IconButton(icon: const Icon(Icons.manage_search, color: Colors.greenAccent), onPressed: _importForensicCSV, tooltip: "Cargar Ruta Forense")
         ]
       ),
       body: Stack(children: [
         FlutterMap(mapController: _mapController, options: MapOptions(initialCenter: LatLng(43.297, -2.985), initialZoom: 17), children: [
-          TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.txurtxil.smaudit'),
-          PolylineLayer(polylines: [Polyline(points: _forensicRoute, color: Colors.grey.withOpacity(0.5), strokeWidth: 8.0, pattern: StrokePattern.dashed(segments: [10.0, 10.0]))]),
+          TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.example.app_nativa'),
+          // CAPA FORENSE (Fondo)
+          PolylineLayer(polylines: [Polyline(points: _forensicRoute, color: Colors.grey.withOpacity(0.5), strokeWidth: 8.0, pattern: const StrokePattern.dashed(segments: [10, 10]))]),
           CircleLayer(circles: _forensicPoints),
+          // CAPA EN VIVO (Encima)
           PolylineLayer(polylines: [Polyline(points: _liveRoute, color: Colors.blueAccent, strokeWidth: 4.0)]),
           CircleLayer(circles: _livePoints),
           if (currentPos != null) MarkerLayer(markers: [Marker(point: currentPos!, child: const Icon(Icons.my_location, color: Colors.blueAccent, size: 30))]),
         ]),
         
+        // HUD TERMINAL AUDIT
         Positioned(top: 10, left: 10, right: 10, child: Card(
           color: isDeadZone ? Colors.purple[900]?.withOpacity(0.9) : Colors.black.withOpacity(0.85),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5), side: BorderSide(color: isDeadZone ? Colors.purpleAccent : Colors.greenAccent, width: 1)),
           child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text("[ ${currentAudit['tech']} ]", style: TextStyle(color: isDeadZone ? Colors.white : Colors.greenAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace', fontSize: 16)),
-              Text("Ping: ${_latency}ms", style: TextStyle(color: _latency > 300 ? Colors.redAccent : Colors.amberAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace', fontSize: 14)),
-              Text("$dbm dBm", style: TextStyle(color: getGodColor(dbm, 'cell'), fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+              Text("[ \${currentAudit['tech']} ]", style: TextStyle(color: isDeadZone ? Colors.white : Colors.greenAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace', fontSize: 16)),
+              Text("\$dbm dBm", style: TextStyle(color: getGodColor(dbm, 'cell'), fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
             ]),
             const Divider(color: Colors.greenAccent, thickness: 0.5),
-            Text("LOC: $currentStreet", style: const TextStyle(color: Colors.white70, fontFamily: 'monospace', fontSize: 12)),
-            Text("OPR: ${currentAudit['operator'] ?? '-'} | CID: ${currentAudit['cell_id'] ?? '-'}", style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 12)),
+            Text("LOC: \$currentStreet", style: const TextStyle(color: Colors.white70, fontFamily: 'monospace', fontSize: 12)),
+            Text("OPR: \${currentAudit['operator'] ?? '-'} | CID: \${currentAudit['cell_id'] ?? '-'}", style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 12)),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text("RSRQ (Quality): ${currentAudit['rsrq'] ?? '-'}", style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'monospace', fontSize: 12)),
-              Text("SNR (Noise): ${currentAudit['snr'] ?? '-'}", style: const TextStyle(color: Colors.cyanAccent, fontFamily: 'monospace', fontSize: 12)),
+              Text("RSRQ (Quality): \${currentAudit['rsrq'] ?? '-'}", style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'monospace', fontSize: 12)),
+              Text("SNR (Noise): \${currentAudit['snr'] ?? '-'}", style: const TextStyle(color: Colors.cyanAccent, fontFamily: 'monospace', fontSize: 12)),
             ]),
             if (isDeadZone) Padding(padding: const EdgeInsets.only(top: 5), child: const Text("WARNING: PACKET DROP EMINENT (DEAD ZONE)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, backgroundColor: Colors.red, fontFamily: 'monospace', fontSize: 11))),
-            if (_anomalyAlert.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 5), child: Text(_anomalyAlert, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, backgroundColor: Colors.yellowAccent, fontFamily: 'monospace', fontSize: 11))),
+            if (_forensicPoints.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 5), child: const Text("FORENSIC LAYER: ACTIVE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, backgroundColor: Colors.greenAccent, fontFamily: 'monospace', fontSize: 11))),
           ]))
         )),
 
@@ -316,7 +276,7 @@ class _OutdoorProState extends State<OutdoorPro> {
           ElevatedButton(
             onPressed: _toggleTracking, 
             style: ElevatedButton.styleFrom(backgroundColor: isTracking ? Colors.redAccent : Colors.greenAccent, minimumSize: const Size(double.infinity, 60), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))), 
-            child: Text(isTracking ? "ABORTAR CAPTURA (BG ACTIVO)" : "INICIAR AUDITORÍA", style: const TextStyle(color: Colors.black, fontSize: 16, fontFamily: 'monospace', fontWeight: FontWeight.bold))
+            child: Text(isTracking ? "ABORTAR CAPTURA" : "INICIAR AUDITORÍA", style: const TextStyle(color: Colors.black, fontSize: 18, fontFamily: 'monospace', fontWeight: FontWeight.bold))
           ),
         ]))
       ]),
@@ -324,7 +284,7 @@ class _OutdoorProState extends State<OutdoorPro> {
   }
 }
 
-// ================= INDOOR PRO & LOGS =================
+// ================= INDOOR PRO (MINIMAL) =================
 class IndoorPro extends StatefulWidget { const IndoorPro({super.key}); @override State<IndoorPro> createState() => _IndoorProState(); }
 class _IndoorProState extends State<IndoorPro> {
   static const platform = MethodChannel('com.signalmapper/power_pro');
@@ -416,3 +376,17 @@ class DatabaseProView extends StatelessWidget {
     );
   }
 }
+DART
+
+echo "🚀 3/3 Compilando la nueva herramienta: SM Audit (V24)..."
+flutter build apk --profile
+
+if [ -f "build/app/outputs/flutter-apk/app-profile.apk" ]; then
+    gh release create v24.0-audit-fork build/app/outputs/flutter-apk/app-profile.apk --repo txurtxil/SignalMapper --title "🕵️ SM AUDIT V24.0: Hacking Tool" --notes "Nueva app independiente (SM Audit). Modo Forense (doble capa de mapas). HUD estilo Terminal Hacker. Datos RSRQ y SNR destacados."
+    echo "===================================================="
+    echo "✅ ¡COMPILADO! Tienes una app NUEVA en tu móvil."
+    echo "Se llama 'SM Audit'. Tu V23 antigua sigue ahí intacta."
+    echo "===================================================="
+else
+    echo "❌ Error al compilar."
+fi

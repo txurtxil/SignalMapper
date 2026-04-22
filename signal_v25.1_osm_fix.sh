@@ -1,5 +1,11 @@
+#!/bin/bash
+cd /workspaces/SignalMapper/app_nativa
+
+echo "🗺️ 1/2 Aplicando Bypass de OpenStreetMap y restaurando Terminal UI..."
+cat << 'DART' > lib/main.dart
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -13,18 +19,56 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabasePro.init();
+  await initializeService();
   runApp(const MaterialApp(home: PowerProNavigation(), debugShowCheckedModeBanner: false, themeMode: ThemeMode.dark));
+}
+
+// ================= MOTOR BACKGROUND (V25) =================
+Future<void> initializeService() async {
+  final service = FlutterBackgroundService();
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: onStart,
+      autoStart: false,
+      isForegroundMode: true,
+      notificationChannelId: 'audit_service',
+      initialNotificationTitle: 'SM AUDIT: ACTIVE SCAN',
+      initialNotificationContent: 'Mapeando y analizando latencia en segundo plano...',
+      foregroundServiceTypes: [AndroidForegroundType.location],
+    ),
+    iosConfiguration: IosConfiguration(),
+  );
+}
+
+@pragma('vm:entry-point')
+void onStart(ServiceInstance service) async {
+  DartPluginRegistrant.ensureInitialized();
+  if (service is AndroidServiceInstance) {
+    service.on('setAsForeground').listen((event) => service.setAsForegroundService());
+    service.on('setAsBackground').listen((event) => service.setAsBackgroundService());
+  }
+  service.on('stopService').listen((event) => service.stopSelf());
+
+  Timer.periodic(const Duration(seconds: 4), (timer) async {
+    if (service is AndroidServiceInstance) {
+      if (await service.isForegroundService()) {
+        service.invoke('update');
+      }
+    }
+  });
 }
 
 // ================= BBDD FORENSE =================
 class DatabasePro {
   static late Database db;
   static Future<void> init() async {
-    db = await openDatabase(p.join(await getDatabasesPath(), 'signal_v26_audit.db'),
+    db = await openDatabase(p.join(await getDatabasesPath(), 'signal_v24_audit.db'),
       onCreate: (db, version) {
         return db.execute('CREATE TABLE audits(id INTEGER PRIMARY KEY, session_id TEXT, type TEXT, dbm INTEGER, tech TEXT, extra_data TEXT, lat REAL, lng REAL, x REAL, y REAL, address TEXT, timestamp TEXT)');
       }, version: 1);
@@ -71,7 +115,7 @@ String sanitizeRF(dynamic value) {
   return strVal;
 }
 
-// ================= NAVEGACIÓN Y PERMISOS SEGUROS =================
+// ================= NAVEGACIÓN =================
 class PowerProNavigation extends StatefulWidget { const PowerProNavigation({super.key}); @override State<PowerProNavigation> createState() => _PowerProNavigationState(); }
 class _PowerProNavigationState extends State<PowerProNavigation> {
   int _currentIndex = 1;
@@ -83,12 +127,9 @@ class _PowerProNavigationState extends State<PowerProNavigation> {
   }
 
   Future<void> _requestPermissions() async {
-    await [Permission.location, Permission.phone, Permission.notification].request();
+    await [Permission.location, Permission.phone].request();
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) await Geolocator.requestPermission();
-    if (await Permission.location.isGranted) {
-      await Permission.locationAlways.request();
-    }
   }
 
   @override Widget build(BuildContext context) {
@@ -107,7 +148,7 @@ class _PowerProNavigationState extends State<PowerProNavigation> {
   }
 }
 
-// ================= OUTDOOR PRO (NATIVE GEOLOCATOR BACKGROUND) =================
+// ================= OUTDOOR PRO (RESTAURADO + BACKGROUND + PING) =================
 class OutdoorPro extends StatefulWidget { const OutdoorPro({super.key}); @override State<OutdoorPro> createState() => _OutdoorProState(); }
 class _OutdoorProState extends State<OutdoorPro> {
   static const platform = MethodChannel('com.signalmapper/power_pro');
@@ -123,59 +164,43 @@ class _OutdoorProState extends State<OutdoorPro> {
   final List<CircleMarker> _forensicPoints = []; final List<LatLng> _forensicRoute = [];
 
   String sessionId = ""; bool isTracking = false; final MapController _mapController = MapController();
-  
-  // EL NUEVO MOTOR: Stream nativo del GPS
-  StreamSubscription<Position>? _positionStream;
+  StreamSubscription? _bgSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _bgSubscription = FlutterBackgroundService().on('update').listen((event) {
+      if (isTracking) _recordData();
+    });
+  }
 
   @override
   void dispose() {
-    _positionStream?.cancel();
+    _bgSubscription?.cancel();
     super.dispose();
   }
 
   void _toggleTracking() async { 
-    if (isTracking) {
-      // APAGAR
-      _positionStream?.cancel();
-      setState(() { isTracking = false; });
-    } else {
-      // ENCENDER
-      setState(() { 
-        isTracking = true; 
+    final service = FlutterBackgroundService();
+    bool isRunning = await service.isRunning();
+    
+    setState(() { 
+      isTracking = !isTracking; 
+      if (isTracking) {
         sessionId = "Audit_${DateTime.now().millisecondsSinceEpoch}";
         _liveRoute.clear(); _livePoints.clear(); 
         _lastCellId = ""; _anomalyAlert = "";
-        currentStreet = "GPS LISTO (Motor Nativo)";
-      });
-      
-      // CONFIGURACIÓN OFICIAL DEL MODO FANTASMA DEL GPS (Cada 2 metros)
-      late LocationSettings locationSettings;
-      if (Platform.isAndroid) {
-        locationSettings = AndroidSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 2, // Lanza evento cada 2 metros caminados
-          forceLocationManager: false,
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationText: "Mapeando redes y latencia. Mantén el móvil bloqueado de forma segura.",
-            notificationTitle: "SM Audit Activo",
-            enableWakeLock: true,
-            notificationIcon: AndroidResource(name: 'ic_bg_service_small', defType: 'drawable'),
-          ),
-        );
+        currentStreet = "BUSCANDO SATÉLITES...";
+        if (!isRunning) service.startService();
       } else {
-        locationSettings = const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2);
+        service.invoke("stopService");
       }
-
-      _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position? position) {
-        if (position != null && mounted) {
-          _recordData(position);
-        }
-      });
-    }
+    }); 
   }
 
-  Future<void> _recordData(Position p) async {
+  Future<void> _recordData() async {
     try {
+      // 1. PING TEST ACTIVO
       final stopwatch = Stopwatch()..start();
       bool hasInternet = false;
       try {
@@ -185,6 +210,7 @@ class _OutdoorProState extends State<OutdoorPro> {
       stopwatch.stop();
       int latency = hasInternet ? stopwatch.elapsedMilliseconds : 999;
 
+      // 2. AUDITORÍA CELULAR
       final nativeAudit = await platform.invokeMethod('getCellularAudit');
       final audit = Map<String, dynamic>.from(nativeAudit);
       int dbm = audit['dbm'] ?? -120;
@@ -195,13 +221,19 @@ class _OutdoorProState extends State<OutdoorPro> {
       
       audit['cell_id'] = sanitizedCID; audit['snr'] = sanitizedSNR; audit['rsrq'] = sanitizedRSRQ;
 
+      // 3. ANOMALÍAS
       String tempAlert = "";
       if (_lastCellId != "" && sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && _lastCellId != sanitizedCID) {
         tempAlert = "⚠️ HANDOVER DETECTADO: CAMBIO DE TORRE";
         HapticFeedback.heavyImpact(); 
       }
       if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-") _lastCellId = sanitizedCID;
-      if (latency > 300) tempAlert = "🔥 ALERTA DE LATENCIA: $latency ms";
+      if (latency > 300) tempAlert = "🔥 ALERTA DE LATENCIA: $latency ms (POSIBLE CONGESTIÓN)";
+
+      Position? p;
+      try { p = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 3)); } 
+      catch (e) { p = await Geolocator.getLastKnownPosition(); }
+      if (p == null) return;
 
       LatLng pos = LatLng(p.latitude, p.longitude);
       String streetName = "TRACKING...";
@@ -229,6 +261,7 @@ class _OutdoorProState extends State<OutdoorPro> {
       if (tempAlert.isNotEmpty) {
         Future.delayed(const Duration(seconds: 3), () { if (mounted) setState(() => _anomalyAlert = ""); });
       }
+
     } catch (e) {}
   }
 
@@ -253,7 +286,7 @@ class _OutdoorProState extends State<OutdoorPro> {
             if (i == 1) _mapController.move(pos, 17.0);
           }
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("DATOS FORENSES CARGADOS"), backgroundColor: Colors.green[900]));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("DATOS FORENSES CARGADOS: ${_forensicPoints.length} puntos"), backgroundColor: Colors.green[900]));
       }
     } catch (e) {}
   }
@@ -269,12 +302,13 @@ class _OutdoorProState extends State<OutdoorPro> {
         title: const Text("AUDIT OUTDOOR", style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace', color: Colors.greenAccent)), 
         backgroundColor: const Color(0xFF121212), 
         actions: [
-          if (_forensicPoints.isNotEmpty) IconButton(icon: const Icon(Icons.layers_clear, color: Colors.redAccent), onPressed: _clearForensics),
-          IconButton(icon: const Icon(Icons.manage_search, color: Colors.greenAccent), onPressed: _importForensicCSV)
+          if (_forensicPoints.isNotEmpty) IconButton(icon: const Icon(Icons.layers_clear, color: Colors.redAccent), onPressed: _clearForensics, tooltip: "Limpiar Forense"),
+          IconButton(icon: const Icon(Icons.manage_search, color: Colors.greenAccent), onPressed: _importForensicCSV, tooltip: "Cargar Ruta Forense")
         ]
       ),
       body: Stack(children: [
         FlutterMap(mapController: _mapController, options: MapOptions(initialCenter: LatLng(43.297, -2.985), initialZoom: 17), children: [
+          // ¡BYPASS DE OSM! FIRMA OFICIAL AÑADIDA
           TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.txurtxil.smaudit'),
           PolylineLayer(polylines: [Polyline(points: _forensicRoute, color: Colors.grey.withOpacity(0.5), strokeWidth: 8.0, pattern: StrokePattern.dashed(segments: [10.0, 10.0]))]),
           CircleLayer(circles: _forensicPoints),
@@ -283,6 +317,7 @@ class _OutdoorProState extends State<OutdoorPro> {
           if (currentPos != null) MarkerLayer(markers: [Marker(point: currentPos!, child: const Icon(Icons.my_location, color: Colors.blueAccent, size: 30))]),
         ]),
         
+        // HUD TERMINAL AUDIT (RESTAURADO Y MEJORADO)
         Positioned(top: 10, left: 10, right: 10, child: Card(
           color: isDeadZone ? Colors.purple[900]?.withOpacity(0.9) : Colors.black.withOpacity(0.85),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5), side: BorderSide(color: isDeadZone ? Colors.purpleAccent : Colors.greenAccent, width: 1)),
@@ -324,7 +359,7 @@ class _OutdoorProState extends State<OutdoorPro> {
   }
 }
 
-// ================= INDOOR PRO & LOGS =================
+// ================= INDOOR PRO (RESTAURADO) =================
 class IndoorPro extends StatefulWidget { const IndoorPro({super.key}); @override State<IndoorPro> createState() => _IndoorProState(); }
 class _IndoorProState extends State<IndoorPro> {
   static const platform = MethodChannel('com.signalmapper/power_pro');
@@ -391,7 +426,7 @@ class _IndoorProState extends State<IndoorPro> {
   }
 }
 
-// ================= HISTORIAL =================
+// ================= HISTORIAL (RESTAURADO) =================
 class DatabaseProView extends StatelessWidget {
   const DatabaseProView({super.key});
   @override Widget build(BuildContext context) {
@@ -416,3 +451,17 @@ class DatabaseProView extends StatelessWidget {
     );
   }
 }
+DART
+
+echo "🚀 2/2 Compilando SM Audit V25.1..."
+flutter build apk --profile
+
+if [ -f "build/app/outputs/flutter-apk/app-profile.apk" ]; then
+    gh release create v25.1-osm-bypass build/app/outputs/flutter-apk/app-profile.apk --repo txurtxil/SignalMapper --title "🕵️ SM AUDIT V25.1: OSM Bypass & HUD Restore" --notes "Solucionado Error 403 con firma de agente de usuario. Restaurado HUD Terminal y capas forenses completas. Pantalla Indoor restaurada."
+    echo "===================================================="
+    echo "✅ ¡MAPA DESBLOQUEADO Y TERMINAL RESTAURADO!"
+    echo "Instala y vuelve a la calle, el mapa debería cargar al instante."
+    echo "===================================================="
+else
+    echo "❌ Error al compilar."
+fi
