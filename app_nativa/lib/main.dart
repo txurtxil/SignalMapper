@@ -24,27 +24,98 @@ void main() async {
   runApp(const MaterialApp(home: PermissionGate(), debugShowCheckedModeBanner: false, themeMode: ThemeMode.dark));
 }
 
+// ================= PERMISSION MANAGER (NO BLOQUEANTE) =================
+class PermIssue {
+  final IconData icon; final String label; final String action;
+  const PermIssue(this.icon, this.label, this.action);
+}
+
+class PermissionManager {
+  static final ValueNotifier<List<PermIssue>> issues = ValueNotifier([]);
+  static Future<void> requestAll() async {
+    await [Permission.location, Permission.phone, Permission.notification, Permission.locationAlways].request();
+    await refresh();
+  }
+  static Future<void> refresh() async {
+    List<PermIssue> out = [];
+    bool gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn) out.add(const PermIssue(Icons.gps_off, "GPS APAGADO", "gps"));
+    if ((await Permission.location.isDenied) || (await Permission.location.isPermanentlyDenied)) out.add(const PermIssue(Icons.location_off, "UBICACION", "perm_location"));
+    if ((await Permission.phone.isDenied) || (await Permission.phone.isPermanentlyDenied)) out.add(const PermIssue(Icons.phone_android, "TELEFONO", "perm_phone"));
+    issues.value = out;
+  }
+  static Future<bool> ensureLocation(BuildContext context) async {
+    bool gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn) { await Geolocator.openLocationSettings(); await refresh(); return false; }
+    var s = await Permission.location.status;
+    if (s.isGranted) return true;
+    s = await Permission.location.request();
+    await refresh();
+    if (s.isGranted) return true;
+    if (s.isPermanentlyDenied && context.mounted) {
+      await showDialog(context: context, builder: (ctx) => AlertDialog(backgroundColor: const Color(0xFF1A1A1A), title: const Text("PERMISO NECESARIO", style: TextStyle(color: Colors.redAccent, fontFamily: 'monospace', fontSize: 14)), content: const Text("Android bloqueo la solicitud. Concede Ubicacion manualmente para auditar senal movil.", style: TextStyle(color: Colors.white70, fontFamily: 'monospace', fontSize: 12)), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR", style: TextStyle(color: Colors.white54))), TextButton(onPressed: () { openAppSettings(); Navigator.pop(ctx); }, child: const Text("ABRIR AJUSTES", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)))]));
+    }
+    return s.isGranted;
+  }
+}
+
+class IssueBanner extends StatelessWidget {
+  const IssueBanner({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<PermIssue>>(valueListenable: PermissionManager.issues, builder: (_, list, __) {
+      if (list.isEmpty) return const SizedBox.shrink();
+      return Container(
+        color: const Color(0xFF1A0505),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(children: [
+          const Icon(Icons.warning_amber, color: Colors.redAccent, size: 16),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: list.map((i) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      avatar: Icon(i.icon, size: 14, color: Colors.redAccent),
+                      label: Text(i.label, style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.white)),
+                      onPressed: () async {
+                        if (i.action == "gps") {
+                          await Geolocator.openLocationSettings();
+                        } else {
+                          var p = i.action == "perm_location" ? Permission.location : Permission.phone;
+                          var s = await p.request();
+                          if (s.isPermanentlyDenied) await openAppSettings();
+                        }
+                        await PermissionManager.refresh();
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ]));
+    });
+  }
+}
+
 // ================= GATEKEEPER =================
 class PermissionGate extends StatefulWidget { const PermissionGate({super.key}); @override State<PermissionGate> createState() => _PermissionGateState(); }
 class _PermissionGateState extends State<PermissionGate> {
-  String statusText = "INICIANDO AUDITORÍA..."; bool needsManualSettings = false;
-  @override void initState() { super.initState(); _checkAndRequestPermissions(); }
-  Future<void> _checkAndRequestPermissions() async {
-    if (mounted) setState(() => statusText = "SOLICITANDO ACCESO...");
-    Map<Permission, PermissionStatus> statuses = await [Permission.location, Permission.phone, Permission.notification, Permission.locationAlways].request();
-    bool allGranted = true; bool anyPermanentlyDenied = false;
-    statuses.forEach((permission, status) { if (!status.isGranted) allGranted = false; if (status.isPermanentlyDenied) anyPermanentlyDenied = true; });
-    bool isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (allGranted && isLocationServiceEnabled) {
-      if (mounted) setState(() => statusText = "ACCESO CONCEDIDO.");
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PowerProNavigation()));
-    } else {
-      if (mounted) setState(() { statusText = "ACCESO DENEGADO.\nRevisa GPS y Permisos de Teléfono."; needsManualSettings = anyPermanentlyDenied || !isLocationServiceEnabled; });
-    }
+  String statusText = "INICIANDO AUDITORIA...";
+  @override void initState() { super.initState(); _boot(); }
+  Future<void> _boot() async {
+    setState(() => statusText = "SOLICITANDO ACCESO...");
+    await PermissionManager.requestAll();
+    setState(() => statusText = "ACCESO LISTO. ENTRANDO...");
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PowerProNavigation()));
   }
-  void _openSettings() async { await openAppSettings(); _checkAndRequestPermissions(); }
-  @override Widget build(BuildContext context) { return Scaffold(backgroundColor: const Color(0xFF0A0A0A), body: Center(child: Padding(padding: const EdgeInsets.all(20.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.security, color: Colors.redAccent, size: 80), const SizedBox(height: 20), const Text("SYSTEM OVERRIDE", style: TextStyle(color: Colors.redAccent, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'monospace')), const SizedBox(height: 20), Text(statusText, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontFamily: 'monospace')), const SizedBox(height: 40), if (statusText.contains("DENEGADO")) ElevatedButton.icon(onPressed: needsManualSettings ? _openSettings : _checkAndRequestPermissions, icon: Icon(needsManualSettings ? Icons.settings : Icons.lock_open, color: Colors.black), label: Text(needsManualSettings ? "ABRIR AJUSTES" : "REINTENTAR", style: const TextStyle(color: Colors.black, fontFamily: 'monospace', fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, minimumSize: const Size(double.infinity, 60))) else const CircularProgressIndicator(color: Colors.greenAccent) ])))); }
+  @override Widget build(BuildContext context) { return Scaffold(backgroundColor: const Color(0xFF0A0A0A), body: Center(child: Padding(padding: const EdgeInsets.all(20.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.radar, color: Colors.greenAccent, size: 80), const SizedBox(height: 20), const Text("SMAUDIT 2", style: TextStyle(color: Colors.greenAccent, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace')), const SizedBox(height: 12), Text(statusText, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontFamily: 'monospace')), const SizedBox(height: 12), const Text("Sin permisos la app arranca igual: avisaremos arriba y podras concederlos con un toque. Modo degradado = sin GPS ni torres.", textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontFamily: 'monospace', fontSize: 11)), const SizedBox(height: 30), const CircularProgressIndicator(color: Colors.greenAccent) ])))); }
 }
 
 // ================= MOTORES DE TRILATERACIÓN =================
@@ -74,7 +145,7 @@ class SparklinePainter extends CustomPainter { final List<num> data; final Color
 class PowerProNavigation extends StatefulWidget { const PowerProNavigation({super.key}); @override State<PowerProNavigation> createState() => _PowerProNavigationState(); }
 class _PowerProNavigationState extends State<PowerProNavigation> {
   int _currentIndex = 1; final List<Widget> _screens = [const IndoorPro(), const OutdoorPro(), const CyberOpsTerminal()];
-  @override Widget build(BuildContext context) { return Scaffold( body: IndexedStack(index: _currentIndex, children: _screens), bottomNavigationBar: BottomNavigationBar( currentIndex: _currentIndex, onTap: (i) => setState(() => _currentIndex = i), backgroundColor: Colors.black, selectedItemColor: Colors.greenAccent, unselectedItemColor: Colors.white30, items: const [BottomNavigationBarItem(icon: Icon(Icons.home), label: "Indoor"), BottomNavigationBarItem(icon: Icon(Icons.radar), label: "Cazador"), BottomNavigationBarItem(icon: Icon(Icons.terminal), label: "Ops Desk")], ), ); }
+  @override Widget build(BuildContext context) { return Scaffold( body: Column(children: [const IssueBanner(), Expanded(child: IndexedStack(index: _currentIndex, children: _screens))]), bottomNavigationBar: BottomNavigationBar( currentIndex: _currentIndex, onTap: (i) => setState(() => _currentIndex = i), backgroundColor: Colors.black, selectedItemColor: Colors.greenAccent, unselectedItemColor: Colors.white30, items: const [BottomNavigationBarItem(icon: Icon(Icons.home), label: "Indoor"), BottomNavigationBarItem(icon: Icon(Icons.radar), label: "Cazador"), BottomNavigationBarItem(icon: Icon(Icons.terminal), label: "Ops Desk")], ), ); }
 }
 
 // ================= OUTDOOR PRO (MAPAS Y RADAR) =================
@@ -85,7 +156,7 @@ class _OutdoorProState extends State<OutdoorPro> {
   String currentStreet = "NO FIX"; int _latency = 0; int _wifiCount = 0; int _vulnCount = 0; String _lastCellId = ""; String _anomalyAlert = "";
   final List<Map<String, dynamic>> _liveData = []; final List<LatLng> _liveRoute = [];
   final Map<String, TowerEstimate> _discoveredTowers = {}; final Map<String, WifiEstimate> _discoveredWifis = {}; 
-  final List<int> _pingHistory = []; final List<double> _rsrqHistory = [];
+  final List<int> _pingHistory = []; final List<double> _rsrqHistory = []; final List<int> _handoverTimes = [];
   bool _isQualityMode = false; bool _showWifiLayer = false; bool _ghostModeActive = false; 
   String sessionId = ""; bool isTracking = false; final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStream;
@@ -95,6 +166,7 @@ class _OutdoorProState extends State<OutdoorPro> {
 
   void _toggleTracking() async { 
     if (isTracking) { _positionStream?.cancel(); setState(() { isTracking = false; }); WakelockPlus.disable(); } else {
+      if (!await PermissionManager.ensureLocation(context)) return;
       setState(() { isTracking = true; sessionId = "Audit2_${DateTime.now().millisecondsSinceEpoch}"; _liveRoute.clear(); _liveData.clear(); _discoveredTowers.clear(); _discoveredWifis.clear(); _pingHistory.clear(); _rsrqHistory.clear(); _wifiCount = 0; _vulnCount = 0; _lastCellId = ""; _anomalyAlert = ""; currentStreet = "GPS LISTO"; selectedTarget = null; });
       WakelockPlus.enable(); 
       late LocationSettings locationSettings;
@@ -111,6 +183,8 @@ class _OutdoorProState extends State<OutdoorPro> {
       final nativeAudit = await platform.invokeMethod('getCellularAudit'); final audit = Map<String, dynamic>.from(nativeAudit); int dbm = audit['dbm'] ?? -120;
       String sanitizedCID = audit['cell_id']?.toString() ?? '-'; String sanitizedSNR = audit['snr']?.toString() ?? '-'; String sanitizedRSRQ = audit['rsrq']?.toString() ?? '-';
       audit['cell_id'] = sanitizedCID; audit['snr'] = sanitizedSNR; audit['rsrq'] = sanitizedRSRQ;
+      String overshootAlert = "";
+      try { final allCells = (audit['cells'] as List?) ?? []; int bestNb = -200; String nbType = "?"; for (var c in allCells) { if (c is Map && c['serving'] != true) { int d = (c['dbm'] as num?)?.toInt() ?? -200; if (d > bestNb) { bestNb = d; nbType = c['type']?.toString() ?? "?"; } } } if (bestNb > -200 && dbm > -120 && (bestNb - dbm) >= 10) overshootAlert = "⚠️ OVERSHOOT: $nbType +${bestNb - dbm}dBm sobre servidora"; } catch (_) {}
       List<Map<String, dynamic>> wifiBatchData = [];
       try {
         final canScan = await WiFiScan.instance.canStartScan(); if (canScan == CanStartScan.yes) await WiFiScan.instance.startScan();
@@ -124,9 +198,9 @@ class _OutdoorProState extends State<OutdoorPro> {
         }
       } catch (e) {}
       if (_pingHistory.length >= 30) _pingHistory.removeAt(0); _pingHistory.add(latency > 500 ? 500 : latency); double rsrqVal = double.tryParse(sanitizedRSRQ.toString()) ?? -20.0; if (_rsrqHistory.length >= 30) _rsrqHistory.removeAt(0); _rsrqHistory.add(rsrqVal);
-      if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-") { if (_discoveredTowers.containsKey(sanitizedCID)) { _discoveredTowers[sanitizedCID]!.addObservation(pos, dbm); } else { _discoveredTowers[sanitizedCID] = TowerEstimate(sanitizedCID, pos, dbm); } }
-      String tempAlert = ""; if (_lastCellId != "" && sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && _lastCellId != sanitizedCID) { tempAlert = "⚠️ HANDOVER: ${_lastCellId} -> $sanitizedCID"; HapticFeedback.heavyImpact(); }
-      if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-") _lastCellId = sanitizedCID; if (latency > 300) tempAlert = "🔥 CONGESTIÓN: $latency ms";
+      if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && sanitizedCID != "-1") { if (_discoveredTowers.containsKey(sanitizedCID)) { _discoveredTowers[sanitizedCID]!.addObservation(pos, dbm); } else { _discoveredTowers[sanitizedCID] = TowerEstimate(sanitizedCID, pos, dbm); } }
+      String tempAlert = overshootAlert; if (_lastCellId != "" && sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && sanitizedCID != "-1" && _lastCellId != sanitizedCID) { tempAlert = "⚠️ HANDOVER: ${_lastCellId} -> $sanitizedCID"; HapticFeedback.heavyImpact(); final now = DateTime.now().millisecondsSinceEpoch; _handoverTimes.add(now); _handoverTimes.removeWhere((t) => now - t > 90000); if (_handoverTimes.length >= 3) { tempAlert = "🔄 PING-PONG x${_handoverTimes.length}: handovers rapidos"; HapticFeedback.vibrate(); } }
+      if (sanitizedCID != "[HIDDEN]" && sanitizedCID != "-" && sanitizedCID != "-1") _lastCellId = sanitizedCID; if (latency > 300) tempAlert = "🔥 CONGESTIÓN: $latency ms";
       String streetName = "TRACKING..."; try { List<Placemark> placemarks = await placemarkFromCoordinates(p.latitude, p.longitude); if (placemarks.isNotEmpty) streetName = "${placemarks.first.thoroughfare}".toUpperCase(); } catch (e) {}
       
       if (mounted) {
