@@ -1,5 +1,21 @@
+# Python / Flet
 .venv/
 __pycache__/
-build/
+*.pyc
 .flet/
+
+# Bases de datos (NUNCA commitear datos de escaneo)
+*.db
+*.sqlite
+*.sqlite3
+
+# Build artifacts
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+app_nativa/build/
+
+# Misc
 *.zip
+.DS_Store
